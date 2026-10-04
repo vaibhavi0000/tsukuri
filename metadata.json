@@ -1,0 +1,6 @@
+{
+  "name": "PrintHub - 3D Printing Business Management",
+  "description": "Comprehensive internal business dashboard for managing 3D printing orders, production queue, filament inventory, costing calculator, customers, and financials.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

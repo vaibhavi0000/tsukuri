@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: 'Fredoka', cursive, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-jp: 'Noto Sans JP', sans-serif;
+
+  --color-tsukuri-bg: #e8ece1;
+  --color-tsukuri-ochre: #f3b755;
+  --color-tsukuri-blue: #9dc4e8;
+  --color-tsukuri-terracotta: #ea8f5a;
+  --color-tsukuri-forest: #1e4b3e;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: #e8ece1;
+    color: #1a2e26;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .font-bubbly {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Enhanced Custom Scrollbar for horizontal function tabs */
+.scrollbar-custom::-webkit-scrollbar {
+  height: 8px;
+}
+.scrollbar-custom::-webkit-scrollbar-track {
+  background: #dbe4d3;
+  border-radius: 9999px;
+}
+.scrollbar-custom::-webkit-scrollbar-thumb {
+  background: #1e4b3e;
+  border-radius: 9999px;
+  border: 2px solid #dbe4d3;
+}
+.scrollbar-custom::-webkit-scrollbar-thumb:hover {
+  background: #15342b;
+}
+
+@media print {
+  html, body {
+    background: white !important;
+    color: #1a2e26 !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #printable-invoice-container, #printable-invoice-container * {
+    visibility: visible;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  #printable-invoice-container {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 24px !important;
+    background: white !important;
+    color: #1a2e26 !important;
+    box-shadow: none !important;
+    border: none !important;
+    z-index: 999999 !important;
+  }
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}

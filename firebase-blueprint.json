@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "live_activity": {
+      "title": "Live Activity Log",
+      "description": "Real-time maker events, views, and order activity in the workshop",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Event type: view, cart, order, print"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable event message"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "ISO timestamp of event"
+        }
+      },
+      "required": ["type", "message", "timestamp"]
+    },
+    "orders": {
+      "title": "Workshop 3D Print Orders",
+      "description": "Customer orders submitted from TsuKURI_3D storefront",
+      "type": "object",
+      "properties": {
+        "orderNumber": {
+          "type": "string"
+        },
+        "customerName": {
+          "type": "string"
+        },
+        "totalAmount": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        },
+        "paymentMethod": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        }
+      },
+      "required": ["orderNumber", "customerName", "totalAmount", "status"]
+    }
+  },
+  "firestore": {
+    "root": {
+      "live_activity": {
+        "schema": "live_activity",
+        "description": "Live workshop telemetry and activity stream"
+      },
+      "orders": {
+        "schema": "orders",
+        "description": "Live production orders from storefront"
+      }
+    }
+  }
+}

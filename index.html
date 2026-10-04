@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        try {
+          // 1. Prevent unhandled AbortError and aborted signal errors from surfacing to error listeners
+          var isAbortError = function(err) {
+            if (!err) return false;
+            var name = err.name || '';
+            var msg = err.message || (typeof err === 'string' ? err : '');
+            return (
+              name === 'AbortError' ||
+              msg.indexOf('aborted without reason') !== -1 ||
+              msg.indexOf('signal is aborted') !== -1 ||
+              msg.indexOf('The operation was aborted') !== -1 ||
+              msg.indexOf('The user aborted a request') !== -1
+            );
+          };
+
+          window.addEventListener('unhandledrejection', function(event) {
+            if (event && isAbortError(event.reason)) {
+              event.preventDefault();
+              if (typeof event.stopImmediatePropagation === 'function') {
+                event.stopImmediatePropagation();
+              }
+              if (typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+              }
+              return true;
+            }
+          }, true);
+
+          window.addEventListener('error', function(event) {
+            var msg = (event && (event.message || '')) || '';
+            var err = event && event.error;
+            if (isAbortError(err) || msg.indexOf('aborted without reason') !== -1 || msg.indexOf('signal is aborted') !== -1) {
+              event.preventDefault();
+              if (typeof event.stopImmediatePropagation === 'function') {
+                event.stopImmediatePropagation();
+              }
+              if (typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+              }
+              return true;
+            }
+          }, true);
+
+          // 2. Wrap window.fetch safely
+          var _native = window.fetch;
+          if (typeof _native === 'function') {
+            var _safeFetch = function() {
+              try {
+                var p = _native.apply(window, arguments);
+                if (p && typeof p.catch === 'function') {
+                  return p.catch(function(err) {
+                    if (isAbortError(err)) {
+                      return new Response(JSON.stringify({ aborted: true }), {
+                        status: 499,
+                        headers: { 'Content-Type': 'application/json' }
+                      });
+                    }
+                    return Promise.reject(err);
+                  });
+                }
+                return p;
+              } catch (e) {
+                if (isAbortError(e)) {
+                  return Promise.resolve(new Response(JSON.stringify({ aborted: true }), { status: 499 }));
+                }
+                return Promise.reject(e);
+              }
+            };
+            var propDesc = {
+              get: function() {
+                return _safeFetch;
+              },
+              set: function(fn) {
+                if (typeof fn === 'function') {
+                  _safeFetch = function() {
+                    try {
+                      var p = fn.apply(window, arguments);
+                      if (p && typeof p.catch === 'function') {
+                        return p.catch(function(err) {
+                          if (isAbortError(err)) {
+                            return new Response(JSON.stringify({ aborted: true }), {
+                              status: 499,
+                              headers: { 'Content-Type': 'application/json' }
+                            });
+                          }
+                          return Promise.reject(err);
+                        });
+                      }
+                      return p;
+                    } catch (e) {
+                      if (isAbortError(e)) {
+                        return Promise.resolve(new Response(JSON.stringify({ aborted: true }), { status: 499 }));
+                      }
+                      return Promise.reject(e);
+                    }
+                  };
+                } else {
+                  _safeFetch = fn;
+                }
+              },
+              configurable: true,
+              enumerable: true,
+            };
+            try {
+              Object.defineProperty(window, 'fetch', propDesc);
+            } catch (e) {}
+            if (typeof Window !== 'undefined' && Window.prototype) {
+              try {
+                Object.defineProperty(Window.prototype, 'fetch', propDesc);
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TsuKURI_3D - Japanese-Indo 3D Craft Studio & Workshop</title>
+    <meta name="description" content="TsuKURI_3D: Premium Japanese-Indo aesthetic 3D printing store & workshop. Minimal sleek Gen Z drops, custom CAD fabrication, and real-time studio management." />
+    <meta property="og:title" content="TsuKURI_3D - Japanese-Indo 3D Craft Studio & Workshop" />
+    <meta property="og:description" content="TsuKURI_3D: Premium Japanese-Indo aesthetic 3D printing store & workshop. Minimal sleek Gen Z drops, custom CAD fabrication, and real-time studio management." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700;800;900&family=Noto+Sans+JP:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

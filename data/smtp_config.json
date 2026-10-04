@@ -1,0 +1,9 @@
+{
+  "host": "smtp.gmail.com",
+  "port": 465,
+  "secure": true,
+  "user": "commersgyan@gmail.com",
+  "pass": "",
+  "fromName": "TsuKURI_3D Official Support",
+  "fromEmail": "commersgyan@gmail.com"
+}
