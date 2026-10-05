@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Trash2,
@@ -66,6 +66,12 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
 
   // REQUIREMENT 10: Option on checkout of adding a discount code
   const [discountCodeInput, setDiscountCodeInput] = useState('');
+  const [availableDiscounts, setAvailableDiscounts] = useState<any[]>([
+    { code: 'TSUKURI10', discountType: 'percentage', value: 10, description: '10% Studio Welcome Discount' },
+    { code: 'PRINT15', discountType: 'percentage', value: 15, description: '15% Maker Slicing Discount' },
+    { code: 'FESTIVE100', discountType: 'flat', value: 100, description: 'Flat ₹100 Festival Savings' },
+    { code: 'MAKER20', discountType: 'percentage', value: 20, description: '20% Print Enthusiast Discount' },
+  ]);
   const [appliedDiscount, setAppliedDiscount] = useState<{
     code: string;
     percent?: number;
@@ -76,6 +82,18 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  // Fetch active discount codes from backend
+  useEffect(() => {
+    fetch('/api/discounts')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setAvailableDiscounts(data.filter((d: any) => d.isActive !== false));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   if (!isOpen) return null;
 
@@ -113,25 +131,53 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
     0
   );
 
-  const handleApplyDiscount = (codeOverride?: string) => {
+  const handleApplyDiscount = async (codeOverride?: string) => {
     const rawCode = (codeOverride || discountCodeInput).trim().toUpperCase();
     if (!rawCode) {
       setDiscountMessage({ type: 'error', text: 'Please enter a coupon code' });
       return;
     }
 
-    if (rawCode === 'TSUKURI10') {
-      setAppliedDiscount({ code: rawCode, percent: 10, description: '10% Studio Welcome Discount' });
-      setDiscountMessage({ type: 'success', text: 'TSUKURI10 applied! 10% discount subtracted.' });
-    } else if (rawCode === 'PRINT15') {
-      setAppliedDiscount({ code: rawCode, percent: 15, description: '15% Maker Slicing Discount' });
-      setDiscountMessage({ type: 'success', text: 'PRINT15 applied! 15% discount subtracted.' });
-    } else if (rawCode === 'FESTIVE100') {
-      setAppliedDiscount({ code: rawCode, amount: 100, description: 'Flat ₹100 Festival Savings' });
-      setDiscountMessage({ type: 'success', text: 'FESTIVE100 applied! Flat ₹100 discount subtracted.' });
-    } else if (rawCode === 'MAKER20') {
-      setAppliedDiscount({ code: rawCode, percent: 20, description: '20% Print Enthusiast Discount' });
-      setDiscountMessage({ type: 'success', text: 'MAKER20 applied! 20% discount subtracted.' });
+    try {
+      const res = await fetch('/api/discounts/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: rawCode, subtotal: subtotalINR }),
+      });
+      if (res.ok) {
+        const valData = await res.json();
+        if (valData.valid) {
+          if (valData.discountType === 'percentage') {
+            setAppliedDiscount({
+              code: valData.code,
+              percent: valData.value,
+              description: valData.description || `${valData.value}% Discount`,
+            });
+          } else {
+            setAppliedDiscount({
+              code: valData.code,
+              amount: valData.discountINR,
+              description: valData.description || `Flat ₹${valData.value} Discount`,
+            });
+          }
+          setDiscountMessage({ type: 'success', text: valData.message || `${valData.code} applied!` });
+          return;
+        } else {
+          setDiscountMessage({ type: 'error', text: valData.message || 'Invalid or expired discount code' });
+          return;
+        }
+      }
+    } catch {}
+
+    // Fallback in-memory matching if offline/error
+    const found = availableDiscounts.find((d) => d.code.toUpperCase() === rawCode);
+    if (found) {
+      if (found.discountType === 'flat') {
+        setAppliedDiscount({ code: rawCode, amount: found.value, description: found.description || `Flat ₹${found.value} Discount` });
+      } else {
+        setAppliedDiscount({ code: rawCode, percent: found.value, description: found.description || `${found.value}% Discount` });
+      }
+      setDiscountMessage({ type: 'success', text: `${rawCode} applied! Savings deducted.` });
     } else {
       setDiscountMessage({
         type: 'error',
@@ -209,6 +255,30 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
       if (!directBuyItem) {
         onClearCart();
       }
+      // Requirement 5: Automatically ensure tax invoice email is sent to customer's email address on both Online & Cash purchases
+      if (email) {
+        fetch('/api/send-invoice-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderNumber: orderResult.orderNumber,
+            customerName,
+            customerEmail: email,
+            totalAmount: finalTotal,
+            subtotal: discountedSubtotal,
+            taxAmount: 0,
+            shippingFee: shippingINR,
+            paymentMethod: paymentMethod === 'COD' ? 'Cash on Delivery (COD)' : 'Online Payment (UPI/Card)',
+            shippingAddress: fullAddress,
+            items: activeItems.map((i) => ({
+              productName: i.product.name,
+              quantity: i.quantity,
+              totalPrice: (i.customPriceINR || i.product.priceINR * i.quantity),
+            })),
+          }),
+        }).catch(() => {});
+      }
+
       setStep('confirmed');
     } catch (err) {
       console.error('Checkout error:', err);
@@ -234,7 +304,7 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
       }
       setStep('confirmed');
 
-      // Dispatch tax invoice email in background
+      // Requirement 5: Dispatch tax invoice email in background
       if (email) {
         fetch('/api/send-invoice-email', {
           method: 'POST',
@@ -244,6 +314,16 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
             customerName,
             customerEmail: email,
             totalAmount: finalTotal,
+            subtotal: discountedSubtotal,
+            taxAmount: 0,
+            shippingFee: shippingINR,
+            paymentMethod: paymentMethod === 'COD' ? 'Cash on Delivery (COD)' : 'Online Payment (UPI/Card)',
+            shippingAddress: `${address}, ${city} - ${pincode}`,
+            items: activeItems.map((i) => ({
+              productName: i.product.name,
+              quantity: i.quantity,
+              totalPrice: (i.customPriceINR || i.product.priceINR * i.quantity),
+            })),
           }),
         }).catch(() => {});
       }
@@ -499,36 +579,19 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                   {/* Quick coupon tags */}
                   <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                     <span className="text-[10px] text-slate-400 font-bold">Suggested:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDiscountCodeInput('TSUKURI10');
-                        handleApplyDiscount('TSUKURI10');
-                      }}
-                      className="text-[10px] font-mono font-bold bg-[#e8ece1] hover:bg-[#f3b755] text-slate-700 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
-                    >
-                      TSUKURI10 (-10%)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDiscountCodeInput('PRINT15');
-                        handleApplyDiscount('PRINT15');
-                      }}
-                      className="text-[10px] font-mono font-bold bg-[#e8ece1] hover:bg-[#f3b755] text-slate-700 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
-                    >
-                      PRINT15 (-15%)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDiscountCodeInput('FESTIVE100');
-                        handleApplyDiscount('FESTIVE100');
-                      }}
-                      className="text-[10px] font-mono font-bold bg-[#e8ece1] hover:bg-[#f3b755] text-slate-700 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
-                    >
-                      FESTIVE100 (-₹100)
-                    </button>
+                    {availableDiscounts.slice(0, 4).map((d) => (
+                      <button
+                        key={d.code}
+                        type="button"
+                        onClick={() => {
+                          setDiscountCodeInput(d.code);
+                          handleApplyDiscount(d.code);
+                        }}
+                        className="text-[10px] font-mono font-bold bg-[#e8ece1] hover:bg-[#f3b755] text-slate-700 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                      >
+                        {d.code} ({d.discountType === 'flat' ? `-₹${d.value}` : `-${d.value}%`})
+                      </button>
+                    ))}
                   </div>
                 </div>
 

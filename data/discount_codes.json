@@ -1,0 +1,57 @@
+[
+  {
+    "id": "dc-1",
+    "code": "TSUKURI10",
+    "discountType": "percentage",
+    "value": 10,
+    "minOrderValue": 0,
+    "maxDiscount": 500,
+    "description": "10% Studio Welcome Discount",
+    "isActive": true,
+    "usageCount": 42
+  },
+  {
+    "id": "dc-2",
+    "code": "PRINT15",
+    "discountType": "percentage",
+    "value": 15,
+    "minOrderValue": 499,
+    "maxDiscount": 750,
+    "description": "15% Maker Slicing Discount",
+    "isActive": true,
+    "usageCount": 28
+  },
+  {
+    "id": "dc-3",
+    "code": "FESTIVE100",
+    "discountType": "flat",
+    "value": 100,
+    "minOrderValue": 699,
+    "maxDiscount": 100,
+    "description": "Flat ₹100 Festival Savings",
+    "isActive": true,
+    "usageCount": 65
+  },
+  {
+    "id": "dc-4",
+    "code": "MAKER20",
+    "discountType": "percentage",
+    "value": 20,
+    "minOrderValue": 899,
+    "maxDiscount": 1000,
+    "description": "20% Print Enthusiast Discount",
+    "isActive": true,
+    "usageCount": 19
+  },
+  {
+    "id": "dc-5",
+    "code": "VIBE25",
+    "discountType": "percentage",
+    "value": 25,
+    "minOrderValue": 1299,
+    "maxDiscount": 1500,
+    "description": "25% Gen Z Vibe Drop Launch Discount",
+    "isActive": true,
+    "usageCount": 14
+  }
+]

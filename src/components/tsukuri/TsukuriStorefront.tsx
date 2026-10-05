@@ -256,25 +256,33 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
                 ✦
               </div>
 
-              <div className="relative z-10 flex justify-between items-start">
-                <span className="px-3 py-0.5 sm:px-3.5 sm:py-1 rounded-full bg-white/40 backdrop-blur-xs text-[#1a2e26] text-[10px] sm:text-[11px] font-bold tracking-wider uppercase">
-                  造り · KYOTO × NUSANTARA 3D STUDIO
-                </span>
-                <span className="hidden sm:inline-block px-3 py-1 rounded-full bg-[#1e4b3e] text-[#f3b755] text-[10px] font-bubbly tracking-wider uppercase">
-                  Solar Powered Lab
-                </span>
+              <div className="relative z-10 flex flex-wrap justify-between items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-white/40 backdrop-blur-xs text-[#1a2e26] text-[10px] sm:text-[11px] font-bold tracking-wider uppercase">
+                    作り · TSUKURI3D STUDIO
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-[#1e4b3e] text-[#f3b755] text-[10px] font-bubbly tracking-wider uppercase">
+                    Print your vibe
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-bold text-[#1a2e26]/80 bg-white/30 backdrop-blur-xs px-3 py-1 rounded-full">
+                  <span>✨ Your space, but make it 3D.</span>
+                </div>
               </div>
 
-              {/* Brand Typography */}
+              {/* Brand Typography & Updated Hero Content */}
               <div className="relative z-10 my-auto py-4 sm:py-8 text-center sm:text-left">
-                <h1 className="font-bubbly text-[42px] xs:text-[54px] sm:text-[110px] lg:text-[130px] leading-none text-white tracking-tighter drop-shadow-xs select-none">
-                  TSUKURI!
+                <div className="inline-block px-3 py-0.5 rounded-full bg-white/60 text-[#1e4b3e] font-bold text-[11px] tracking-wider uppercase mb-2">
+                  Made layer by layer. Made for you.
+                </div>
+                <h1 className="font-bubbly text-[42px] xs:text-[54px] sm:text-[100px] lg:text-[120px] leading-none text-white tracking-tighter drop-shadow-xs select-none">
+                  TSUKURI3D
                 </h1>
                 <p className="font-bubbly text-lg sm:text-2xl text-[#1a2e26] mt-2 tracking-tight">
-                  Premium Japanese-Indo 3D Craft Studio
+                  Aesthetic 3D Printed Decor & Desk Accessories
                 </p>
-                <p className="text-xs sm:text-sm font-bold text-[#1a2e26]/80 mt-1 max-w-lg leading-relaxed">
-                  Where Kyoto geometric precision meets Indonesian teak wood and volcanic basalt textures. High-speed Bambu Lab X1C print fleet crafting everyday functional art for Gen Z makers.
+                <p className="text-xs sm:text-sm font-bold text-[#1a2e26]/85 mt-2 max-w-xl leading-relaxed">
+                  Tsukuri3d makes aesthetic 3D printed pieces for desks, shelves, and everyday carry. Think minimal, quirky, and a little futuristic. Every piece is designed to stand out and is printed to order.
                 </p>
 
                 <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 sm:gap-3 mt-5">
@@ -298,7 +306,7 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
               <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 sm:pt-4 border-t border-black/5">
                 <div className="text-center sm:text-left">
                   <p className="text-xs font-bold text-[#1a2e26]/80 leading-snug">
-                    Freshly crafted 3D objects, made just for you
+                    Made layer by layer. Made for you. · Print your vibe.
                   </p>
                 </div>
 
@@ -594,37 +602,58 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
           </div>
         </div>
 
-        {/* Philosophy Callout */}
-        <div id="philosophy" className="rounded-[2rem] sm:rounded-[2.5rem] bg-white p-6 sm:p-12 shadow-2xs">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 text-center md:text-left">
-            <div className="space-y-1.5">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#f3b755] text-[#1a2e26] flex items-center justify-center font-bubbly text-lg sm:text-xl mx-auto md:mx-0">
-                造
-              </div>
-              <h3 className="font-bubbly text-lg sm:text-xl text-[#1a2e26]">Kyoto Precision</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Parametric CAD geometries calibrated to 0.12mm layer tolerances for seamless mechanical snap-fits and organic textures.
-              </p>
-            </div>
+        {/* About / Brand Description & Why Tsukuri3d (Requirement 8) */}
+        <div id="about" className="rounded-[2rem] sm:rounded-[2.5rem] bg-white p-6 sm:p-12 shadow-2xs space-y-8">
+          {/* Brand Story */}
+          <div className="max-w-3xl mx-auto text-center space-y-3">
+            <span className="px-3.5 py-1 rounded-full bg-[#1e4b3e]/10 text-[#1e4b3e] text-[11px] font-bold uppercase tracking-widest inline-block">
+              ABOUT TSUKURI3D · 作り
+            </span>
+            <h2 className="font-bubbly text-2xl sm:text-4xl text-[#1a2e26]">
+              Made Layer by Layer. Made for You.
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Tsukuri (作り) is Japanese for &ldquo;making&rdquo; or &ldquo;craft&rdquo;, and that&apos;s what we do. Tsukuri3d turns bold ideas into objects you&apos;ll actually want to show off. We design and print everything ourselves, from desk decor and phone stands to lamps, planters, and gifts. Each piece is made in small batches so it never feels mass-produced. No boring basics. Just cool, clean, one-of-a-kind stuff that fits your vibe.
+            </p>
+          </div>
 
-            <div className="space-y-1.5">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#ea8f5a] text-white flex items-center justify-center font-bubbly text-lg sm:text-xl mx-auto md:mx-0">
-                木
-              </div>
-              <h3 className="font-bubbly text-lg sm:text-xl text-[#1a2e26]">Indo Teak & Basalt</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Sustainable filament composites infused with Indonesian reclaimed teak wood flour and volcanic basalt ceramic resins.
-              </p>
+          {/* Why Tsukuri3d (3 points) */}
+          <div className="pt-4 border-t border-slate-100">
+            <div className="text-center mb-6">
+              <span className="font-bubbly text-lg sm:text-xl text-[#1a2e26]">
+                WHY TSUKURI3D
+              </span>
             </div>
-
-            <div className="space-y-1.5">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#9dc4e8] text-[#1a2e26] flex items-center justify-center font-bubbly text-lg sm:text-xl mx-auto md:mx-0">
-                光
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 text-center md:text-left">
+              <div className="p-5 rounded-2xl bg-[#e8ece1]/50 border border-[#1e4b3e]/10 space-y-2">
+                <div className="w-12 h-12 rounded-2xl bg-[#1e4b3e] text-[#f3b755] flex items-center justify-center font-bubbly text-xl mx-auto md:mx-0 shadow-2xs">
+                  ✦
+                </div>
+                <h3 className="font-bubbly text-base sm:text-lg text-[#1a2e26]">Unique designs</h3>
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                  Nothing you&apos;ll see in every other room.
+                </p>
               </div>
-              <h3 className="font-bubbly text-lg sm:text-xl text-[#1a2e26]">100% Solar Print Lab</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Our high-speed Bambu Lab and Prusa print fleet runs exclusively on rooftop solar microgrids with zero fossil emissions.
-              </p>
+
+              <div className="p-5 rounded-2xl bg-[#f3b755]/20 border border-[#f3b755]/40 space-y-2">
+                <div className="w-12 h-12 rounded-2xl bg-[#f3b755] text-[#1a2e26] flex items-center justify-center font-bubbly text-xl mx-auto md:mx-0 shadow-2xs">
+                  🖨️
+                </div>
+                <h3 className="font-bubbly text-base sm:text-lg text-[#1a2e26]">Made to order</h3>
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                  Printed fresh for you, in colors you pick.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-[#ea8f5a]/20 border border-[#ea8f5a]/40 space-y-2">
+                <div className="w-12 h-12 rounded-2xl bg-[#ea8f5a] text-white flex items-center justify-center font-bubbly text-xl mx-auto md:mx-0 shadow-2xs">
+                  🎁
+                </div>
+                <h3 className="font-bubbly text-base sm:text-lg text-[#1a2e26]">Giftable</h3>
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                  Quirky pieces that are easy to gift.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -639,10 +668,10 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
                 <div className="w-7 h-7 rounded-full bg-[#f3b755] text-[#1a2e26] flex items-center justify-center font-bubbly text-xs">
                   造
                 </div>
-                <span className="font-bubbly text-lg text-white">TSUKURI_3D</span>
+                <span className="font-bubbly text-lg text-white">TSUKURI3D</span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Kyoto discipline meets Indonesian artisan materials. Premium 3D drops, functional desk gear, and custom CAD fabrication.
+                Aesthetic 3D printed decor and gadgets for Gen Z. Designed bold, printed layer by layer.
               </p>
             </div>
 
@@ -693,7 +722,7 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
           </div>
 
           <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400 text-center sm:text-left">
-            <p>© 2024–2026 TsuKURI_3D Studio. All designs crafted with pride · Official Studio Support Desk</p>
+            <p>© 2024–2026 Tsukuri3d. Designed bold, printed layer by layer · Official Studio Support Desk</p>
 
             <button
               onClick={onOpenAdmin}

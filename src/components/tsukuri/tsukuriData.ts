@@ -510,11 +510,13 @@ export interface StudioSettings {
   deliveryPartner: string;
   deliveryCharges: number;
   deliveryEta: string;
+  chargeGst?: boolean;
+  gstRate?: number;
 }
 
 export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
   brandName: 'TsuKURI_3D Studio (造り)',
-  gstinNumber: '29AABCT3921Z1Z8',
+  gstinNumber: '',
   workshopAddress: 'Plot 42, HSR Layout Sector 1, Bengaluru, Karnataka 560102',
   supportEmail: 'commersgyan@gmail.com',
   supportPhone: '+91 98450 33021',
@@ -522,4 +524,6 @@ export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
   deliveryPartner: 'BlueDart Surface Express',
   deliveryCharges: 0,
   deliveryEta: '3 to 4 Days Pan-India',
+  chargeGst: false,
+  gstRate: 18,
 };

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowLeft,
   Star,
@@ -39,6 +39,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 }) => {
   const [quantity, setQuantity] = useState(1);
   const [addedBanner, setAddedBanner] = useState(false);
+
+  // Requirement 4: Ensure product page always opens scrolled to the very top
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [product?.id]);
 
   // Variant & Combo state (Requirement 2)
   const [selectedColor, setSelectedColor] = useState<string>(

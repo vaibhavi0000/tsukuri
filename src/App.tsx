@@ -95,14 +95,18 @@ export const App: React.FC = () => {
   const handleBackToStore = () => {
     setViewMode('storefront');
     window.history.pushState({}, '', '/');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
   };
 
   const handleSelectProduct = (product: TsukuriProduct) => {
     setSelectedProduct(product);
     setViewMode('product');
     window.history.pushState({}, '', `/product/${product.id}`);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
   };
 
   // Requirement 2 & 4: Buy Now handler on Product Page with Variants & Combos

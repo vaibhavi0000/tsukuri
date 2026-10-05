@@ -30,6 +30,7 @@ import {
   getServerSmtpConfig,
   updateServerSmtpConfig,
   autoDispatchOrderInvoice,
+  sendOrderStatusUpdateEmail,
   verifySmtpConnection,
   testSmtpConnection,
   buildTaxInvoiceEmailHtml,
@@ -116,7 +117,7 @@ apiRouter.post('/telemetry/heartbeat', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // AI BUSINESS ANALYZER (Requirement 7)
 // ----------------------------------------------------
-apiRouter.post('/ai-analyzer', async (req: Request, res: Response) => {
+const handleAiAnalyzer = async (req: Request, res: Response) => {
   try {
     const allOrders = await db.select().from(orders);
     const allExpenses = await db.select().from(expenses);
@@ -166,13 +167,19 @@ Return ONLY valid JSON matching this schema:
   "fleetInsights": string
 }`;
 
-        const response = await ai.models.generateContent({
+        const generatePromise = ai.models.generateContent({
           model: 'gemini-3.8-flash',
           contents: prompt,
           config: { responseMimeType: 'application/json' },
         });
 
-        if (response.text) {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('AI model timeout after 6s')), 6000)
+        );
+
+        const response: any = await Promise.race([generatePromise, timeoutPromise]);
+
+        if (response && response.text) {
           const parsed = JSON.parse(response.text);
           return res.json({ success: true, analysis: parsed, liveMetrics: metricsSummary });
         }
@@ -219,7 +226,10 @@ Return ONLY valid JSON matching this schema:
     console.error('AI analyzer route failed:', error);
     res.status(500).json({ error: error.message || 'Analysis failed' });
   }
-});
+};
+
+apiRouter.get('/ai-analyzer', handleAiAnalyzer);
+apiRouter.post('/ai-analyzer', handleAiAnalyzer);
 
 // ----------------------------------------------------
 // 1. DASHBOARD & KPIS
@@ -621,10 +631,82 @@ apiRouter.put('/orders/:id', async (req: Request, res: Response) => {
       .returning();
 
     await logActivity('Staff', `Updated Order Status to ${updated.status}`, 'order', updated.orderNumber);
+
+    // Requirement 7: When admin updates status in orders production flow, auto-send themed email to customer
+    if (updated.customerEmail && (body.status || body.targetStatus)) {
+      (async () => {
+        try {
+          const items = await db.select().from(orderItems).where(eq(orderItems.orderId, updated.id));
+          await sendOrderStatusUpdateEmail({
+            orderNumber: updated.orderNumber,
+            customerName: updated.customerName,
+            customerEmail: updated.customerEmail!,
+            status: updated.status,
+            courierName: updated.courierName || 'BlueDart Surface Express',
+            trackingNumber: updated.trackingNumber || undefined,
+            deliveryEta: '3 to 4 Days Pan-India Express',
+            shippingAddress: updated.shippingAddress || undefined,
+            totalAmount: updated.totalAmount,
+            items: items.map((it) => ({
+              productName: it.productName,
+              quantity: it.quantity,
+              totalPrice: it.totalPrice,
+            })),
+          });
+          await logActivity(
+            'Production Mailer',
+            `Auto-Dispatched Order Status Email (${updated.status})`,
+            'email',
+            updated.orderNumber,
+            `Sent to ${updated.customerEmail}`
+          );
+        } catch (emailErr) {
+          console.error('[Automated Status Mailer] Error:', emailErr);
+        }
+      })();
+    }
+
     res.json(updated);
   } catch (error: any) {
     console.error('Failed to update order:', error);
     res.status(500).json({ error: error.message || 'Failed to update order' });
+  }
+});
+
+// Explicit endpoint to send / resend order status update email
+apiRouter.post('/orders/:id/send-status-email', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const orderList = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+    if (orderList.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const order = orderList[0];
+    const customerEmail = req.body.customerEmail || order.customerEmail;
+    if (!customerEmail) {
+      return res.status(400).json({ error: 'Order has no customer email address' });
+    }
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const result = await sendOrderStatusUpdateEmail({
+      orderNumber: order.orderNumber,
+      customerName: req.body.customerName || order.customerName,
+      customerEmail,
+      status: req.body.status || order.status,
+      courierName: order.courierName || 'BlueDart Surface Express',
+      trackingNumber: order.trackingNumber || undefined,
+      deliveryEta: '3 to 4 Days Pan-India Express',
+      shippingAddress: order.shippingAddress || undefined,
+      totalAmount: order.totalAmount,
+      items: items.map((it) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        totalPrice: it.totalPrice,
+      })),
+    });
+    res.json(result);
+  } catch (error: any) {
+    console.error('Failed to send status update email:', error);
+    res.status(500).json({ error: error.message || 'Failed to send status email' });
   }
 });
 
@@ -2045,5 +2127,241 @@ apiRouter.post('/payu/response', async (req: Request, res: Response) => {
     res.status(500).send('Error processing PayU callback');
   }
 });
+
+// ----------------------------------------------------
+// REQUIREMENT 6: DISCOUNT CODES & PROMOTIONS MANAGEMENT
+// ----------------------------------------------------
+const DISCOUNTS_FILE = path.join(process.cwd(), 'data', 'discount_codes.json');
+
+function getDiscountsList(): any[] {
+  try {
+    if (fs.existsSync(DISCOUNTS_FILE)) {
+      const data = fs.readFileSync(DISCOUNTS_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.error('Error reading discounts file:', err);
+  }
+  return [
+    {
+      id: 'dc-1',
+      code: 'TSUKURI10',
+      discountType: 'percentage',
+      value: 10,
+      minOrderValue: 0,
+      maxDiscount: 500,
+      description: '10% Studio Welcome Discount',
+      isActive: true,
+      usageCount: 42,
+    },
+    {
+      id: 'dc-2',
+      code: 'PRINT15',
+      discountType: 'percentage',
+      value: 15,
+      minOrderValue: 499,
+      maxDiscount: 750,
+      description: '15% Maker Slicing Discount',
+      isActive: true,
+      usageCount: 28,
+    },
+    {
+      id: 'dc-3',
+      code: 'FESTIVE100',
+      discountType: 'flat',
+      value: 100,
+      minOrderValue: 699,
+      maxDiscount: 100,
+      description: 'Flat ₹100 Festival Savings',
+      isActive: true,
+      usageCount: 65,
+    },
+    {
+      id: 'dc-4',
+      code: 'MAKER20',
+      discountType: 'percentage',
+      value: 20,
+      minOrderValue: 899,
+      maxDiscount: 1000,
+      description: '20% Print Enthusiast Discount',
+      isActive: true,
+      usageCount: 19,
+    },
+    {
+      id: 'dc-5',
+      code: 'VIBE25',
+      discountType: 'percentage',
+      value: 25,
+      minOrderValue: 1299,
+      maxDiscount: 1500,
+      description: '25% Gen Z Vibe Drop Launch Discount',
+      isActive: true,
+      usageCount: 14,
+    },
+  ];
+}
+
+function saveDiscountsList(list: any[]) {
+  try {
+    const dir = path.dirname(DISCOUNTS_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DISCOUNTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error writing discounts file:', err);
+  }
+}
+
+// 1. List all discount codes
+apiRouter.get('/discounts', (req: Request, res: Response) => {
+  try {
+    const discounts = getDiscountsList();
+    res.json(discounts);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch discount codes' });
+  }
+});
+
+// 2. Create discount code
+apiRouter.post('/discounts', async (req: Request, res: Response) => {
+  try {
+    const { code, discountType, value, minOrderValue, maxDiscount, description, isActive } = req.body;
+    if (!code || value === undefined) {
+      return res.status(400).json({ error: 'Coupon code and discount value are required' });
+    }
+    const cleanCode = code.trim().toUpperCase();
+    const discounts = getDiscountsList();
+    if (discounts.some((d: any) => d.code === cleanCode)) {
+      return res.status(400).json({ error: `Coupon code '${cleanCode}' already exists` });
+    }
+
+    const newDiscount = {
+      id: `dc-${Date.now()}`,
+      code: cleanCode,
+      discountType: discountType === 'flat' ? 'flat' : 'percentage',
+      value: Number(value) || 0,
+      minOrderValue: Number(minOrderValue) || 0,
+      maxDiscount: maxDiscount ? Number(maxDiscount) : undefined,
+      description: description || `${cleanCode} Special Discount`,
+      isActive: isActive !== false,
+      usageCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    discounts.unshift(newDiscount);
+    saveDiscountsList(discounts);
+
+    await logActivity('Admin', `Created Discount Coupon ${cleanCode}`, 'campaign', cleanCode);
+    res.status(201).json(newDiscount);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create discount code' });
+  }
+});
+
+// 3. Update discount code
+apiRouter.put('/discounts/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const body = req.body;
+    const discounts = getDiscountsList();
+    const index = discounts.findIndex((d: any) => d.id === id || String(d.id) === String(id));
+    if (index === -1) {
+      return res.status(404).json({ error: 'Discount code not found' });
+    }
+
+    const updated = {
+      ...discounts[index],
+      ...body,
+      code: body.code ? body.code.trim().toUpperCase() : discounts[index].code,
+      value: body.value !== undefined ? Number(body.value) : discounts[index].value,
+      minOrderValue: body.minOrderValue !== undefined ? Number(body.minOrderValue) : discounts[index].minOrderValue,
+      maxDiscount: body.maxDiscount !== undefined ? (body.maxDiscount ? Number(body.maxDiscount) : undefined) : discounts[index].maxDiscount,
+      updatedAt: new Date().toISOString(),
+    };
+
+    discounts[index] = updated;
+    saveDiscountsList(discounts);
+
+    await logActivity('Admin', `Updated Discount Coupon ${updated.code}`, 'campaign', updated.code);
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update discount code' });
+  }
+});
+
+// 4. Delete discount code
+apiRouter.delete('/discounts/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const discounts = getDiscountsList();
+    const toDelete = discounts.find((d: any) => d.id === id || String(d.id) === String(id));
+    const filtered = discounts.filter((d: any) => d.id !== id && String(d.id) !== String(id));
+    if (filtered.length === discounts.length) {
+      return res.status(404).json({ error: 'Discount code not found' });
+    }
+
+    saveDiscountsList(filtered);
+    if (toDelete) {
+      await logActivity('Admin', `Deleted Discount Coupon ${toDelete.code}`, 'campaign', toDelete.code);
+    }
+    res.json({ success: true, message: 'Discount code removed' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete discount code' });
+  }
+});
+
+// 5. Validate discount code against cart subtotal
+apiRouter.post('/discounts/validate', (req: Request, res: Response) => {
+  try {
+    const { code, subtotal } = req.body;
+    if (!code) {
+      return res.status(400).json({ valid: false, message: 'Please enter a coupon code' });
+    }
+
+    const cleanCode = code.trim().toUpperCase();
+    const discounts = getDiscountsList();
+    const found = discounts.find((d: any) => d.code === cleanCode);
+
+    if (!found) {
+      return res.status(200).json({ valid: false, message: `Coupon code '${cleanCode}' is invalid` });
+    }
+
+    if (!found.isActive) {
+      return res.status(200).json({ valid: false, message: `Coupon code '${cleanCode}' has expired or is inactive` });
+    }
+
+    const cartSubtotal = Number(subtotal) || 0;
+    if (found.minOrderValue && cartSubtotal < found.minOrderValue) {
+      return res.status(200).json({
+        valid: false,
+        message: `Add ₹${found.minOrderValue - cartSubtotal} more to apply ${found.code} (Min order: ₹${found.minOrderValue})`,
+      });
+    }
+
+    let discountINR = 0;
+    if (found.discountType === 'percentage') {
+      discountINR = Math.round((cartSubtotal * found.value) / 100);
+      if (found.maxDiscount && discountINR > found.maxDiscount) {
+        discountINR = found.maxDiscount;
+      }
+    } else {
+      discountINR = Math.min(cartSubtotal, found.value);
+    }
+
+    res.json({
+      valid: true,
+      discountINR,
+      code: found.code,
+      discountType: found.discountType,
+      value: found.value,
+      description: found.description,
+      message: `${found.code} applied! Saved ₹${discountINR}`,
+    });
+  } catch (error) {
+    res.status(500).json({ valid: false, message: 'Error validating discount code' });
+  }
+});
+
 
 
