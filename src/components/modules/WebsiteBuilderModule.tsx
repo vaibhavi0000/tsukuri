@@ -497,12 +497,12 @@ export const WebsiteBuilderModule: React.FC<WebsiteBuilderModuleProps> = ({
                   <div>
                     <h3 className="font-bold text-sm text-white">Generate Storefront with Gemini AI</h3>
                     <p className="text-[11px] text-indigo-200">
-                      Powered by Gemini 3.8 Flash & Google AI Studio
+                      Powered by Gemini 2.5 Flash & Google AI Studio
                     </p>
                   </div>
                 </div>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-200 border border-indigo-400/20">
-                  Model: gemini-3.8-flash
+                  Model: gemini-2.5-flash
                 </span>
               </div>
 

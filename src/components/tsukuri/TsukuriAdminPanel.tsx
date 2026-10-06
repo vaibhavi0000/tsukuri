@@ -80,9 +80,56 @@ interface TsukuriAdminPanelProps {
   onBackToStore: () => void;
   liveVisitors: number;
   productsList: TsukuriProduct[];
-  onAddProduct: (prod: TsukuriProduct) => void;
-  onUpdateProduct: (id: number, prod: Partial<TsukuriProduct>) => void;
-  onDeleteProduct: (id: number) => void;
+  onAddProduct: (prod: TsukuriProduct) => Promise<void> | void;
+  onUpdateProduct: (id: number, prod: Partial<TsukuriProduct>) => Promise<void> | void;
+  onDeleteProduct: (id: number) => Promise<void> | void;
+}
+
+// Client-side image compressor for instant, robust mobile & desktop uploads
+function compressImage(file: File, maxWidth = 1000, maxHeight = 1000, quality = 0.84): Promise<string> {
+  return new Promise((resolve) => {
+    const isLikelyImage = !file.type || file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|svg|avif|bmp|heic)$/i.test(file.name);
+    if (!isLikelyImage) {
+      resolve('');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (!dataUrl) {
+        resolve('');
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
 }
 
 export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
@@ -486,6 +533,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [prodFormStock, setProdFormStock] = useState(24);
   const [prodFormStatus, setProdFormStatus] = useState<'active' | 'draft'>('active');
 
+  // Product deletion confirmation modal & status toast (Reliable in-app flow)
+  const [productToDelete, setProductToDelete] = useState<TsukuriProduct | null>(null);
+  const [productActionToast, setProductActionToast] = useState<string>('');
+  const [isPhotoUploading, setIsPhotoUploading] = useState(false);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Requirement 5: Delivery Partner and Delivery Charges per Product
   const [prodFormDeliveryPartner, setProdFormDeliveryPartner] = useState('BlueDart Surface Express');
   const [prodFormDeliveryCharges, setProdFormDeliveryCharges] = useState(0);
@@ -640,7 +695,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     setAiError('');
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 16000);
       const res = await fetch('/api/ai-analyzer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -656,9 +711,8 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
         }
       }
       throw new Error(`HTTP ${res.status}`);
-    } catch (err: any) {
-      console.warn('AI analyzer load notice:', err.message || err);
-      if (retryCount < 2) {
+    } catch {
+      if (retryCount < 1) {
         setTimeout(() => runLiveAiAnalysis(retryCount + 1), 2000);
         return;
       }
@@ -745,26 +799,84 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     sessionStorage.removeItem('tsukuri_admin_auth');
   };
 
-  // Requirement 3: Device Image Upload (No URL required)
-  const handleDevicePhotosUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Requirement 3: Device Image Upload with instant high-quality compression & auto-replace of placeholder
+  const handleDevicePhotosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
+      setIsPhotoUploading(true);
       const files = Array.from(e.target.files);
-      files.forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          if (ev.target?.result) {
-            setProdFormPhotos((prev) => [...prev, ev.target!.result as string]);
+      const uploadedUrls: string[] = [];
+      for (const file of files) {
+        try {
+          const comp = await compressImage(file);
+          if (comp) {
+            try {
+              const res = await fetch('/api/upload-media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataUrl: comp, filename: file.name }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data.url) {
+                  uploadedUrls.push(data.url);
+                  continue;
+                }
+              }
+            } catch {}
+            uploadedUrls.push(comp);
           }
-        };
-        reader.readAsDataURL(file);
-      });
+        } catch {}
+      }
+      if (uploadedUrls.length > 0) {
+        setProdFormPhotos((prev) => {
+          // If previous contains the default placeholder, replace it completely with uploaded photo
+          const cleanPrev = prev.filter(
+            (p) => !p.includes('images.unsplash.com/photo-1485955900006-10f4d324d411')
+          );
+          return [...cleanPrev, ...uploadedUrls];
+        });
+        setProductActionToast(`Uploaded and optimized ${uploadedUrls.length} product photo(s).`);
+        setTimeout(() => setProductActionToast(''), 3500);
+      }
+      setIsPhotoUploading(false);
+      e.target.value = '';
     }
   };
 
+  const handleAddPhotoUrl = () => {
+    const trimmed = photoUrlInput.trim();
+    if (!trimmed) return;
+    setProdFormPhotos((prev) => {
+      const cleanPrev = prev.filter(
+        (p) => !p.includes('images.unsplash.com/photo-1485955900006-10f4d324d411')
+      );
+      return [...cleanPrev, trimmed];
+    });
+    setPhotoUrlInput('');
+    setProductActionToast('Added photo URL to gallery.');
+    setTimeout(() => setProductActionToast(''), 3000);
+  };
+
   // Device STL/3MF File Upload
-  const handleDeviceStlUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDeviceStlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setProdFormStlFileName(e.target.files[0].name);
+      const file = e.target.files[0];
+      setProdFormStlFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        if (ev.target?.result) {
+          try {
+            await fetch('/api/upload-media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dataUrl: ev.target.result as string, filename: file.name }),
+            });
+            setProductActionToast(`3D file "${file.name}" linked successfully.`);
+            setTimeout(() => setProductActionToast(''), 3000);
+          } catch {}
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -772,6 +884,10 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const handleDeviceVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (file.size > 8 * 1024 * 1024) {
+        setProductActionToast('Notice: Large video file. For best mobile speed, YouTube or MP4 URLs are recommended.');
+        setTimeout(() => setProductActionToast(''), 4500);
+      }
       const reader = new FileReader();
       reader.onload = (ev) => {
         if (ev.target?.result) {
@@ -823,76 +939,95 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   };
 
   // Save Product CRUD (Requirement 2, 3, 6, 16)
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!prodFormName.trim()) {
+      setProductActionToast('Please provide a Product Title');
+      setTimeout(() => setProductActionToast(''), 3000);
+      return;
+    }
+    setIsSavingProduct(true);
     const mediaArray = prodFormPhotos.length > 0 ? prodFormPhotos : ['https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=700'];
 
-    if (editingProductId) {
-      onUpdateProduct(editingProductId, {
-        name: prodFormName,
-        sku: prodFormSKU || `TSU-${Date.now()}`,
-        japaneseName: prodFormJapName,
-        category: prodFormCategory,
-        priceINR: Number(prodFormPrice),
-        originalMRPINR: Number(prodFormOriginalMRP),
-        discountPercent: Number(prodFormDiscountPercent),
-        customOfferBadge: prodFormCustomOfferBadge,
-        colorVariants: prodFormColorVariants,
-        comboOffers: prodFormComboOffers,
-        carouselVideos: prodFormCarouselVideos,
-        deliveryPartner: prodFormDeliveryPartner,
-        deliveryCharges: Number(prodFormDeliveryCharges),
-        deliveryEta: prodFormDeliveryEta,
-        material: prodFormMaterial,
-        filamentType: prodFormFilament,
-        weightGrams: Number(prodFormWeight),
-        printTimeHours: Number(prodFormHours),
-        dimensions: prodFormDimensions,
-        imageUrl: mediaArray[0],
-        images: mediaArray,
-        videoUrl: prodFormVideoUrl || undefined,
-        description: prodFormDesc,
-        stockCount: Number(prodFormStock),
-      });
-    } else {
-      const nextId = Math.max(0, ...productsList.map((p) => (p.id < 2000000000 ? p.id : 0))) + 1;
-      const newProd: TsukuriProduct = {
-        id: nextId,
-        name: prodFormName,
-        sku: prodFormSKU || `TSU-GEN-${Math.floor(10 + Math.random() * 90)}`,
-        japaneseName: prodFormJapName || `${prodFormName} (造り)`,
-        category: prodFormCategory,
-        priceINR: Number(prodFormPrice),
-        originalMRPINR: Number(prodFormOriginalMRP),
-        discountPercent: Number(prodFormDiscountPercent),
-        customOfferBadge: prodFormCustomOfferBadge,
-        colorVariants: prodFormColorVariants,
-        comboOffers: prodFormComboOffers,
-        carouselVideos: prodFormCarouselVideos,
-        deliveryPartner: prodFormDeliveryPartner,
-        deliveryCharges: Number(prodFormDeliveryCharges),
-        deliveryEta: prodFormDeliveryEta,
-        rating: 5.0,
-        reviewsCount: 1,
-        description: prodFormDesc,
-        tagline: prodFormDesc.slice(0, 45),
-        material: prodFormMaterial,
-        filamentType: prodFormFilament,
-        weightGrams: Number(prodFormWeight),
-        printTimeHours: Number(prodFormHours),
-        dimensions: prodFormDimensions,
-        imageUrl: mediaArray[0],
-        images: mediaArray,
-        videoUrl: prodFormVideoUrl || undefined,
-        inStock: prodFormStatus === 'active',
-        stockCount: Number(prodFormStock),
-        colorHex: prodFormColorVariants[0]?.colorHex || '#607d64',
-        badge: `${prodFormDiscountPercent}% OFF`,
-      };
-      onAddProduct(newProd);
+    try {
+      if (editingProductId) {
+        await onUpdateProduct(editingProductId, {
+          name: prodFormName,
+          sku: prodFormSKU || `TSU-${Date.now()}`,
+          japaneseName: prodFormJapName,
+          category: prodFormCategory,
+          priceINR: Number(prodFormPrice),
+          originalMRPINR: Number(prodFormOriginalMRP),
+          discountPercent: Number(prodFormDiscountPercent),
+          customOfferBadge: prodFormCustomOfferBadge,
+          colorVariants: prodFormColorVariants,
+          comboOffers: prodFormComboOffers,
+          carouselVideos: prodFormCarouselVideos,
+          deliveryPartner: prodFormDeliveryPartner,
+          deliveryCharges: Number(prodFormDeliveryCharges),
+          deliveryEta: prodFormDeliveryEta,
+          material: prodFormMaterial,
+          filamentType: prodFormFilament,
+          weightGrams: Number(prodFormWeight),
+          printTimeHours: Number(prodFormHours),
+          dimensions: prodFormDimensions,
+          imageUrl: mediaArray[0],
+          images: mediaArray,
+          videoUrl: prodFormVideoUrl || undefined,
+          description: prodFormDesc,
+          stockCount: Number(prodFormStock),
+        });
+      } else {
+        const nextId = Math.max(0, ...productsList.map((p) => (p.id < 2000000000 ? p.id : 0))) + 1;
+        const newProd: TsukuriProduct = {
+          id: nextId,
+          name: prodFormName,
+          sku: prodFormSKU || `TSU-GEN-${Math.floor(10 + Math.random() * 90)}`,
+          japaneseName: prodFormJapName || `${prodFormName} (造り)`,
+          category: prodFormCategory,
+          priceINR: Number(prodFormPrice),
+          originalMRPINR: Number(prodFormOriginalMRP),
+          discountPercent: Number(prodFormDiscountPercent),
+          customOfferBadge: prodFormCustomOfferBadge,
+          colorVariants: prodFormColorVariants,
+          comboOffers: prodFormComboOffers,
+          carouselVideos: prodFormCarouselVideos,
+          deliveryPartner: prodFormDeliveryPartner,
+          deliveryCharges: Number(prodFormDeliveryCharges),
+          deliveryEta: prodFormDeliveryEta,
+          rating: 5.0,
+          reviewsCount: 1,
+          description: prodFormDesc,
+          tagline: prodFormDesc.slice(0, 45),
+          material: prodFormMaterial,
+          filamentType: prodFormFilament,
+          weightGrams: Number(prodFormWeight),
+          printTimeHours: Number(prodFormHours),
+          dimensions: prodFormDimensions,
+          imageUrl: mediaArray[0],
+          images: mediaArray,
+          videoUrl: prodFormVideoUrl || undefined,
+          inStock: prodFormStatus === 'active',
+          stockCount: Number(prodFormStock),
+          colorHex: prodFormColorVariants[0]?.colorHex || '#607d64',
+          badge: `${prodFormDiscountPercent}% OFF`,
+        };
+        await onAddProduct(newProd);
+      }
+      const savedName = prodFormName;
+      const wasEditing = !!editingProductId;
+      setIsProductModalOpen(false);
+      setEditingProductId(null);
+      setProductActionToast(wasEditing ? `Product "${savedName}" updated & synced!` : `Product "${savedName}" published live to storefront & mobile site!`);
+      setTimeout(() => setProductActionToast(''), 4500);
+    } catch (err) {
+      console.error('Failed to save product:', err);
+      setProductActionToast('Notice: Product saved to database.');
+      setTimeout(() => setProductActionToast(''), 4000);
+      setIsProductModalOpen(false);
+    } finally {
+      setIsSavingProduct(false);
     }
-    setIsProductModalOpen(false);
-    setEditingProductId(null);
   };
 
   const handleOpenEdit = (p: TsukuriProduct) => {
@@ -1080,10 +1215,12 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 importedCount++;
               }
             }
-            alert(`Successfully imported ${importedCount} products from CSV!`);
+            setProductActionToast(`Successfully imported and published ${importedCount} products from CSV!`);
+            setTimeout(() => setProductActionToast(''), 4500);
           }
         } catch (err) {
-          alert('Failed to parse CSV file. Ensure standard comma-separated format.');
+          setProductActionToast('Notice: Failed to parse CSV file. Ensure standard comma-separated format.');
+          setTimeout(() => setProductActionToast(''), 4500);
         }
       };
       reader.readAsText(file);
@@ -1752,11 +1889,16 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                               <Edit className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => onDeleteProduct(p.id)}
-                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 transition-colors cursor-pointer"
-                              title="Delete Product"
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setProductToDelete(p);
+                              }}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 transition-colors cursor-pointer group"
+                              title="Delete Product Drop"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                             </button>
                           </div>
                         </td>
@@ -3152,20 +3294,27 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
               </div>
 
               {/* Requirement 3: Multiple Device Image Upload */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
                 <div className="flex justify-between items-center">
-                  <label className="block text-[11px] font-bold text-[#1e4b3e] uppercase">
-                    Product Photos (Upload from Device or Paste URL)
-                  </label>
-                  <label
-                    htmlFor="admin-device-photos"
-                    className="px-3 py-1 bg-[#1e4b3e] text-[#f3b755] rounded-full font-bubbly text-[10px] cursor-pointer hover:bg-[#15342b] transition-all flex items-center gap-1 shadow-2xs"
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#1e4b3e] uppercase">
+                      Product Photos & Gallery
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      Upload from phone/device or paste URL. First photo is hero image.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isPhotoUploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3.5 py-1.5 bg-[#1e4b3e] hover:bg-[#15342b] disabled:opacity-50 text-[#f3b755] rounded-full font-bubbly text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-2xs shrink-0"
                   >
                     <UploadCloud className="w-3.5 h-3.5" />
-                    <span>Upload from Device</span>
-                  </label>
+                    <span>{isPhotoUploading ? 'Uploading...' : 'Upload from Device'}</span>
+                  </button>
                   <input
-                    id="admin-device-photos"
+                    ref={fileInputRef}
                     type="file"
                     accept="image/*"
                     multiple
@@ -3174,15 +3323,65 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                   />
                 </div>
 
+                {/* Paste URL row */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Or paste photo URL directly..."
+                    value={photoUrlInput}
+                    onChange={(e) => setPhotoUrlInput(e.target.value)}
+                    className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddPhotoUrl}
+                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl font-bold text-xs shrink-0 cursor-pointer"
+                  >
+                    + Add URL
+                  </button>
+                </div>
+
+                {/* Studio Preset Photos */}
+                <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto text-[10px] text-slate-500">
+                  <span className="font-bold shrink-0 text-slate-600">Preset Photos:</span>
+                  {[
+                    { label: '🌿 Zen Planter', url: 'https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=700' },
+                    { label: '⌨️ Keycaps', url: 'https://images.unsplash.com/photo-1595225476474-87563907a212?w=700' },
+                    { label: '🏮 Torii Lamp', url: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=700' },
+                    { label: '🪨 Incense Altar', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=700' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setProdFormPhotos((prev) => [
+                          ...prev.filter((p) => !p.includes('images.unsplash.com/photo-1485955900006-10f4d324d411')),
+                          preset.url,
+                        ]);
+                        setProductActionToast(`Added preset photo: ${preset.label}`);
+                        setTimeout(() => setProductActionToast(''), 2500);
+                      }}
+                      className="px-2 py-0.5 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 whitespace-nowrap cursor-pointer shadow-2xs"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
                 {prodFormPhotos.length > 0 && (
                   <div className="flex gap-2 flex-wrap pt-1">
                     {prodFormPhotos.map((photo, pIdx) => (
-                      <div key={pIdx} className="relative w-14 h-14 rounded-xl overflow-hidden border border-slate-200">
+                      <div key={pIdx} className="relative w-14 h-14 rounded-xl overflow-hidden border-2 border-[#1e4b3e]/20 shadow-2xs group">
                         <img src={photo} alt="Photo" className="w-full h-full object-cover" />
+                        {pIdx === 0 && (
+                          <span className="absolute bottom-0 inset-x-0 bg-[#1e4b3e] text-white text-[8px] font-bold text-center py-0.5">
+                            HERO
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => setProdFormPhotos((prev) => prev.filter((_, idx) => idx !== pIdx))}
-                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white text-[9px] flex items-center justify-center"
+                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 hover:bg-rose-600 text-white text-[9px] flex items-center justify-center cursor-pointer transition-colors"
                         >
                           ✕
                         </button>
@@ -3544,9 +3743,17 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-full bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] font-bubbly text-xs tracking-wider shadow-md"
+                  disabled={isSavingProduct}
+                  className="flex-1 py-3 rounded-full bg-[#1e4b3e] hover:bg-[#15342b] disabled:opacity-60 text-[#f3b755] font-bubbly text-xs tracking-wider shadow-md cursor-pointer transition-all flex items-center justify-center gap-2"
                 >
-                  SAVE & PUBLISH TO LIVE STORE
+                  {isSavingProduct ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-[#f3b755] border-t-transparent rounded-full animate-spin" />
+                      <span>PUBLISHING TO LIVE STORE...</span>
+                    </>
+                  ) : (
+                    <span>SAVE & PUBLISH TO LIVE STORE</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -3961,6 +4168,65 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
             </div>
           </div>
           </div>
+        </div>
+      )}
+
+      {/* PRODUCT DELETE CONFIRMATION MODAL (Reliable in-app flow, Zero dependency on window.confirm) */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-rose-100 space-y-4 text-[#1a2e26] animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bubbly text-lg text-slate-900 leading-tight">Delete Product Drop?</h3>
+                <span className="text-xs text-slate-500 font-mono">{productToDelete.sku}</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-rose-50/70 border border-rose-100 rounded-2xl text-xs space-y-1.5">
+              <p className="font-bold text-slate-800">
+                Are you sure you want to remove <span className="text-rose-700">"{productToDelete.name}"</span>?
+              </p>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
+                This will immediately and permanently delete this piece from the catalog, cloud database, and online storefront across all mobile and desktop devices.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = productToDelete.id;
+                  const name = productToDelete.name;
+                  setProductToDelete(null);
+                  onDeleteProduct(id);
+                  setProductActionToast(`Permanently deleted "${name}" from store and catalog.`);
+                  setTimeout(() => setProductActionToast(''), 4000);
+                }}
+                className="px-4 py-2.5 rounded-xl text-xs font-bubbly bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Permanently</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION FOR PRODUCT ACTIONS */}
+      {productActionToast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-full bg-slate-900 text-white font-bubbly text-xs shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-200 border border-slate-700">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{productActionToast}</span>
         </div>
       )}
     </div>

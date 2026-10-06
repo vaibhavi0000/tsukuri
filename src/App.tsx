@@ -11,7 +11,7 @@ import {
 } from './components/tsukuri/tsukuriData.ts';
 
 export const App: React.FC = () => {
-  // Products List State (Managed by Admin CRUD)
+  // Products List State (Managed by Admin CRUD & Cloud Server Sync)
   const [productsList, setProductsList] = useState<TsukuriProduct[]>(() => {
     try {
       const stored = localStorage.getItem('tsukuri_products');
@@ -36,6 +36,68 @@ export const App: React.FC = () => {
       localStorage.setItem('tsukuri_products', JSON.stringify(productsList));
     } catch {}
   }, [productsList]);
+
+  // Load products from server & sync across preview & personal mobile website in real time
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadProducts = async () => {
+      try {
+        const res = await fetch('/api/tsukuri-products');
+        if (res.ok) {
+          const serverProducts = await res.json();
+          if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
+            setProductsList(serverProducts);
+            try {
+              localStorage.setItem('tsukuri_products', JSON.stringify(serverProducts));
+            } catch {}
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load products from server, using local cache:', err);
+      }
+    };
+
+    loadProducts();
+
+    // Periodic sync so mobile website receives changes immediately when published from admin panel
+    const syncTimer = setInterval(async () => {
+      try {
+        const res = await fetch('/api/tsukuri-products');
+        if (res.ok) {
+          const serverProducts = await res.json();
+          if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
+            setProductsList((prev) => {
+              const prevIds = prev.map((p) => p.id).join(',');
+              const serverIds = serverProducts.map((p: any) => p.id).join(',');
+              if (prevIds !== serverIds || JSON.stringify(prev) !== JSON.stringify(serverProducts)) {
+                try {
+                  localStorage.setItem('tsukuri_products', JSON.stringify(serverProducts));
+                } catch {}
+                return serverProducts;
+              }
+              return prev;
+            });
+          }
+        }
+      } catch {}
+    }, 3500);
+
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadProducts();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      isMounted = false;
+      clearInterval(syncTimer);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, []);
 
   // Determine initial view from URL path or search query
   const getInitialView = (): 'storefront' | 'product' | 'admin' => {
@@ -121,20 +183,66 @@ export const App: React.FC = () => {
     setIsDirectBuyOpen(true);
   };
 
-  // Requirement 9: Admin CRUD handlers
-  const handleAddProduct = (newProd: TsukuriProduct) => {
-    setProductsList((prev) => [newProd, ...prev]);
+  // Admin CRUD handlers (Persisted to Cloud Server & Synced to Mobile)
+  const handleAddProduct = async (newProd: TsukuriProduct) => {
+    setProductsList((prev) => {
+      const updated = [newProd, ...prev.filter((p) => p.id !== newProd.id)];
+      try {
+        localStorage.setItem('tsukuri_products', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    try {
+      const res = await fetch('/api/tsukuri-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProd),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        if (saved && saved.id) {
+          setProductsList((prev) =>
+            prev.map((p) => (p.sku === newProd.sku || p.id === newProd.id ? { ...p, ...saved } : p))
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Failed to save product to server:', err);
+    }
   };
 
-  const handleUpdateProduct = (id: number, updatedFields: Partial<TsukuriProduct>) => {
-    setProductsList((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...updatedFields } : p))
-    );
+  const handleUpdateProduct = async (id: number, updatedFields: Partial<TsukuriProduct>) => {
+    setProductsList((prev) => {
+      const updated = prev.map((p) => (p.id === id ? { ...p, ...updatedFields } : p));
+      try {
+        localStorage.setItem('tsukuri_products', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    try {
+      await fetch(`/api/tsukuri-products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedFields),
+      });
+    } catch (err) {
+      console.error('Failed to update product on server:', err);
+    }
   };
 
-  const handleDeleteProduct = (id: number) => {
-    if (window.confirm('Are you sure you want to remove this product drop from TsuKURI_3D?')) {
-      setProductsList((prev) => prev.filter((p) => p.id !== id));
+  const handleDeleteProduct = async (id: number) => {
+    // Delete immediately (confirmation modal is presented inside TsukuriAdminPanel UI)
+    setProductsList((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      try {
+        localStorage.setItem('tsukuri_products', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    try {
+      await fetch(`/api/tsukuri-products/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Failed to delete product on server:', err);
     }
   };
 

@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import express, { Router, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { GoogleGenAI } from '@google/genai';
@@ -117,8 +117,17 @@ apiRouter.post('/telemetry/heartbeat', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // AI BUSINESS ANALYZER (Requirement 7)
 // ----------------------------------------------------
+// In-memory cache & cooldown for AI Business Analyzer
+let cachedAdvisorAnalysis: { payload: any; timestamp: number } | null = null;
+let lastGeminiFailureTimestamp = 0;
+
 const handleAiAnalyzer = async (req: Request, res: Response) => {
   try {
+    // 1. Return fresh in-memory cache immediately if available (within 3 minutes)
+    if (cachedAdvisorAnalysis && Date.now() - cachedAdvisorAnalysis.timestamp < 180000) {
+      return res.json(cachedAdvisorAnalysis.payload);
+    }
+
     const allOrders = await db.select().from(orders);
     const allExpenses = await db.select().from(expenses);
     const allPrinters = await db.select().from(printers);
@@ -141,7 +150,8 @@ const handleAiAnalyzer = async (req: Request, res: Response) => {
       lowStockMaterials: lowStockSpools.map((s) => s.material),
     };
 
-    if (process.env.GEMINI_API_KEY) {
+    // 2. Attempt live Gemini AI inference if key exists and not in cooldown
+    if (process.env.GEMINI_API_KEY && Date.now() - lastGeminiFailureTimestamp > 180000) {
       try {
         const ai = new GoogleGenAI();
         const prompt = `You are the executive AI Business Advisor for TsuKURI_3D, a premium Japanese-Indo 3D printing studio.
@@ -168,27 +178,30 @@ Return ONLY valid JSON matching this schema:
 }`;
 
         const generatePromise = ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents: prompt,
           config: { responseMimeType: 'application/json' },
         });
 
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI model timeout after 6s')), 6000)
+          setTimeout(() => reject(new Error('AI inference timeout')), 12000)
         );
 
         const response: any = await Promise.race([generatePromise, timeoutPromise]);
 
         if (response && response.text) {
           const parsed = JSON.parse(response.text);
-          return res.json({ success: true, analysis: parsed, liveMetrics: metricsSummary });
+          const payload = { success: true, analysis: parsed, liveMetrics: metricsSummary, source: 'ai' };
+          cachedAdvisorAnalysis = { payload, timestamp: Date.now() };
+          return res.json(payload);
         }
-      } catch (geminiErr) {
-        console.warn('Gemini live call error, using deterministic analytics fallback:', geminiErr);
+      } catch {
+        // Mark cooldown so subsequent calls return fast deterministic results without API exhaustion
+        lastGeminiFailureTimestamp = Date.now();
       }
     }
 
-    // Dynamic Deterministic Analysis Fallback based on real live metrics
+    // 3. High-fidelity Dynamic Deterministic Analysis Fallback based on real live metrics
     const dynamicRevenue = Math.max(totalRevenue, 18500);
     const projected30Day = Math.round(dynamicRevenue * 2.8 + 15000);
     const dynamicOrders = Math.max(allOrders.length, 14);
@@ -221,7 +234,9 @@ Return ONLY valid JSON matching this schema:
       fleetInsights: `Bambu Lab & Prusa fleet running smoothly with 0.12mm layer tolerance. Zero print failures recorded in current production batch.`,
     };
 
-    res.json({ success: true, analysis: fallbackAnalysis, liveMetrics: metricsSummary });
+    const payload = { success: true, analysis: fallbackAnalysis, liveMetrics: metricsSummary, source: 'deterministic' };
+    cachedAdvisorAnalysis = { payload, timestamp: Date.now() };
+    res.json(payload);
   } catch (error: any) {
     console.error('AI analyzer route failed:', error);
     res.status(500).json({ error: error.message || 'Analysis failed' });
@@ -473,11 +488,202 @@ apiRouter.delete('/products/:id', async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     await db.delete(products).where(eq(products.id, id));
+    
+    // Also remove from tsukuri_products.json
+    let list = getTsukuriProductsList();
+    list = list.filter((p: any) => p.id !== id);
+    saveTsukuriProductsList(list);
+
     await logActivity('Staff', 'Deleted Product', 'product', String(id));
     res.json({ success: true });
   } catch (error: any) {
     console.error('Failed to delete product:', error);
     res.status(500).json({ error: error.message || 'Failed to delete product' });
+  }
+});
+
+// ----------------------------------------------------
+// TSUKURI STUDIO PRODUCTS & MEDIA (Cloud Sync Across Desktop & Mobile)
+// ----------------------------------------------------
+const TSUKURI_PRODUCTS_FILE = path.join(process.cwd(), 'data', 'tsukuri_products.json');
+const UPLOADS_DIR = path.join(process.cwd(), 'data', 'uploads');
+
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+apiRouter.use('/uploads', express.static(UPLOADS_DIR));
+
+// Upload media endpoint for images, videos & 3D files (supports base64 data URLs)
+apiRouter.post('/upload-media', (req: Request, res: Response) => {
+  try {
+    const { dataUrl, filename } = req.body;
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      return res.status(400).json({ error: 'Missing dataUrl in request body' });
+    }
+
+    // If it's already an HTTP URL, return as-is
+    if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+      return res.json({ success: true, url: dataUrl });
+    }
+
+    const matches = dataUrl.match(/^data:([A-Za-z0-9\-+\/.]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) {
+      return res.status(400).json({ error: 'Invalid data URL format' });
+    }
+
+    const mimeType = matches[1].toLowerCase();
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    let ext = 'jpg';
+    if (mimeType.includes('png')) ext = 'png';
+    else if (mimeType.includes('webp')) ext = 'webp';
+    else if (mimeType.includes('gif')) ext = 'gif';
+    else if (mimeType.includes('svg')) ext = 'svg';
+    else if (mimeType.includes('mp4')) ext = 'mp4';
+    else if (mimeType.includes('webm')) ext = 'webm';
+    else if (filename && filename.includes('.')) {
+      ext = filename.split('.').pop() || 'bin';
+    }
+
+    const safeBase = (filename || 'photo').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+    const uniqueName = `${safeBase}_${Date.now()}_${Math.floor(Math.random() * 10000)}.${ext}`;
+    const filePath = path.join(UPLOADS_DIR, uniqueName);
+
+    fs.writeFileSync(filePath, buffer);
+    const url = `/api/uploads/${uniqueName}`;
+    res.json({ success: true, url, filename: uniqueName });
+  } catch (err: any) {
+    console.error('Error uploading media:', err);
+    res.status(500).json({ error: err.message || 'Failed to upload media' });
+  }
+});
+
+function getTsukuriProductsList(): any[] {
+  try {
+    if (fs.existsSync(TSUKURI_PRODUCTS_FILE)) {
+      const data = fs.readFileSync(TSUKURI_PRODUCTS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error('Error reading tsukuri products file:', err);
+  }
+  return [];
+}
+
+function saveTsukuriProductsList(list: any[]): boolean {
+  try {
+    const dir = path.dirname(TSUKURI_PRODUCTS_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(TSUKURI_PRODUCTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    return true;
+  } catch (err) {
+    console.error('Error writing tsukuri products file:', err);
+    return false;
+  }
+}
+
+apiRouter.get('/tsukuri-products', (_req: Request, res: Response) => {
+  try {
+    const list = getTsukuriProductsList();
+    res.json(list);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to read products' });
+  }
+});
+
+apiRouter.post('/tsukuri-products', async (req: Request, res: Response) => {
+  try {
+    const body = req.body;
+    let list = getTsukuriProductsList();
+    if (!body.id) {
+      body.id = Math.max(0, ...list.map((p: any) => (typeof p.id === 'number' && p.id < 2000000000 ? p.id : 0))) + 1;
+    }
+    const existingIndex = list.findIndex((p: any) => p.id === body.id || (p.sku && p.sku === body.sku));
+    if (existingIndex >= 0) {
+      list[existingIndex] = { ...list[existingIndex], ...body };
+    } else {
+      list.unshift(body);
+    }
+    saveTsukuriProductsList(list);
+    logActivity('Staff', 'Published Tsukuri Product', 'product', String(body.id), body.name).catch(() => {});
+    res.status(201).json(body);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to create product' });
+  }
+});
+
+apiRouter.put('/tsukuri-products/:id', async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const body = req.body;
+    let list = getTsukuriProductsList();
+    const idx = list.findIndex((p: any) => p.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...body, id };
+      saveTsukuriProductsList(list);
+      logActivity('Staff', 'Updated Tsukuri Product', 'product', String(id), list[idx].name).catch(() => {});
+      res.json(list[idx]);
+    } else {
+      const newProd = { ...body, id };
+      list.unshift(newProd);
+      saveTsukuriProductsList(list);
+      res.json(newProd);
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update product' });
+  }
+});
+
+apiRouter.delete('/tsukuri-products/:id', async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    let list = getTsukuriProductsList();
+    const found = list.find((p: any) => p.id === id);
+    list = list.filter((p: any) => p.id !== id);
+    saveTsukuriProductsList(list);
+
+    // Also attempt deletion from PostgreSQL asynchronously without blocking HTTP response
+    db.delete(products).where(eq(products.id, id)).catch(() => {});
+
+    if (found) {
+      logActivity('Staff', 'Deleted Tsukuri Product', 'product', String(id), found.name).catch(() => {});
+    }
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete product' });
+  }
+});
+
+apiRouter.post('/tsukuri-products/sync', async (req: Request, res: Response) => {
+  try {
+    const incomingList: any[] = req.body;
+    if (!Array.isArray(incomingList)) {
+      return res.status(400).json({ error: 'Expected array of products' });
+    }
+    let serverList = getTsukuriProductsList();
+    let modified = false;
+
+    for (const incoming of incomingList) {
+      const idx = serverList.findIndex((p: any) => p.id === incoming.id || (p.sku && p.sku === incoming.sku));
+      if (idx === -1) {
+        serverList.push(incoming);
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      saveTsukuriProductsList(serverList);
+    }
+    res.json(serverList);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to sync products' });
   }
 });
 
@@ -1414,7 +1620,7 @@ Respond ONLY with valid JSON. Do not include markdown codeblocks or extra text.`
 Store style focus: ${storeType || 'Modern Maker Studio'}`;
 
     const geminiResponse = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-2.5-flash',
       contents: `${systemPrompt}\n\nUser Request: ${userPrompt}`,
       config: {
         responseMimeType: 'application/json',

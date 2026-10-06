@@ -413,12 +413,12 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex items-center gap-1 bg-white p-1 rounded-full border border-slate-200 shadow-2xs overflow-x-auto">
-              {['All', 'Home & Zen', 'Desk & Tech', 'Wearables'].map((cat) => (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-full border border-slate-200 shadow-2xs overflow-x-auto max-w-full">
+              {['All', ...Array.from(new Set(displayProducts.map((p) => p.category).filter(Boolean)))].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap ${
+                  className={`px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                     selectedCategory === cat
                       ? 'bg-[#1e4b3e] text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
