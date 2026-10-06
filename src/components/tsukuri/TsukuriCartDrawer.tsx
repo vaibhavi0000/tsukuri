@@ -95,6 +95,49 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
       .catch(() => {});
   }, []);
 
+  // Requirement 7: Automatically save customer details into specific tab when customer fills information
+  useEffect(() => {
+    const cleanName = customerName.trim();
+    if (cleanName.length >= 2 || phone.trim().length >= 5 || email.trim().length >= 4) {
+      try {
+        const stored = localStorage.getItem('tsukuri_customers');
+        let list: any[] = stored ? JSON.parse(stored) : [];
+        if (!Array.isArray(list)) list = [];
+
+        const key = (email || phone || cleanName).toLowerCase().trim();
+        const existingIdx = list.findIndex((c: any) =>
+          (c.email && c.email.toLowerCase() === key) ||
+          (c.phone && c.phone === phone.trim()) ||
+          (c.name && c.name.toLowerCase() === cleanName.toLowerCase())
+        );
+
+        const customerEntry = {
+          id: existingIdx >= 0 ? list[existingIdx].id : `cust-${Date.now()}`,
+          name: cleanName || 'Customer',
+          email: email.trim(),
+          phone: phone.trim(),
+          address: address.trim(),
+          city: city.trim(),
+          pincode: pincode.trim(),
+          totalOrders: existingIdx >= 0 ? list[existingIdx].totalOrders : 0,
+          totalSpend: existingIdx >= 0 ? list[existingIdx].totalSpend : 0,
+          isRepeatCustomer: existingIdx >= 0 ? list[existingIdx].isRepeatCustomer : false,
+          notes: 'Auto-saved from checkout form input',
+          createdAt: existingIdx >= 0 ? list[existingIdx].createdAt : new Date().toISOString(),
+          lastActive: new Date().toISOString(),
+        };
+
+        if (existingIdx >= 0) {
+          list[existingIdx] = { ...list[existingIdx], ...customerEntry };
+        } else {
+          list.unshift(customerEntry);
+        }
+        localStorage.setItem('tsukuri_customers', JSON.stringify(list));
+        window.dispatchEvent(new CustomEvent('tsukuri_customer_saved', { detail: customerEntry }));
+      } catch {}
+    }
+  }, [customerName, email, phone, address, city, pincode]);
+
   if (!isOpen) return null;
 
   // Active items for this checkout session
@@ -238,6 +281,74 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
 
       // Record live order in Firebase
       recordLiveActivity('order', `Order #${orderResult.orderNumber} placed by ${customerName} (${formatPrice(finalTotal)}) [${paymentMethod}]`);
+
+      // Persist order in localStorage so it appears in Admin Orders & Customer Data immediately (Vercel resilient)
+      try {
+        const storedOrders = localStorage.getItem('tsukuri_orders');
+        let ordersArr: any[] = storedOrders ? JSON.parse(storedOrders) : [];
+        if (!Array.isArray(ordersArr)) ordersArr = [];
+        const newOrderObj = {
+          id: String(orderResult.id || Date.now()),
+          orderNumber: orderResult.orderNumber,
+          customerName: customerName.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          address: fullAddress,
+          city: city.trim() || 'India',
+          items: activeItems.map((i) => ({
+            productId: i.product.id,
+            name: `${i.product.name}${i.selectedColor ? ` (${i.selectedColor})` : ''}`,
+            quantity: i.quantity,
+            priceINR: i.customPriceINR ? Math.round(i.customPriceINR / i.quantity) : i.product.priceINR,
+          })),
+          subtotalINR: discountedSubtotal,
+          paymentMethod: paymentMethod === 'COD' ? 'COD' : 'Online',
+          codFee,
+          onlineDiscount,
+          totalAmountINR: finalTotal,
+          status: 'New',
+          paymentStatus: paymentMethod === 'COD' ? 'COD' : 'Paid',
+          orderDate: new Date().toISOString(),
+          courier: activeDeliveryPartner,
+          trackingNumber: `BLU${Math.floor(10000000 + Math.random() * 90000000)}`,
+          notes: `Customer Order via ${paymentMethod}`,
+        };
+        ordersArr.unshift(newOrderObj);
+        localStorage.setItem('tsukuri_orders', JSON.stringify(ordersArr));
+
+        // Update customer total spend and orders count in tsukuri_customers
+        const storedCusts = localStorage.getItem('tsukuri_customers');
+        let custsArr: any[] = storedCusts ? JSON.parse(storedCusts) : [];
+        const key = (email || phone || customerName).toLowerCase().trim();
+        const cIdx = custsArr.findIndex((c: any) =>
+          (c.email && c.email.toLowerCase() === key) ||
+          (c.phone && c.phone === phone.trim()) ||
+          (c.name && c.name.toLowerCase() === customerName.toLowerCase().trim())
+        );
+        if (cIdx >= 0) {
+          custsArr[cIdx].totalOrders = (custsArr[cIdx].totalOrders || 0) + 1;
+          custsArr[cIdx].totalSpend = (custsArr[cIdx].totalSpend || 0) + finalTotal;
+          custsArr[cIdx].isRepeatCustomer = custsArr[cIdx].totalOrders > 1;
+          custsArr[cIdx].lastActive = new Date().toISOString();
+        } else {
+          custsArr.unshift({
+            id: `cust-${Date.now()}`,
+            name: customerName.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            address: fullAddress,
+            city: city.trim(),
+            pincode: pincode.trim(),
+            totalOrders: 1,
+            totalSpend: finalTotal,
+            isRepeatCustomer: false,
+            createdAt: new Date().toISOString(),
+            lastActive: new Date().toISOString(),
+          });
+        }
+        localStorage.setItem('tsukuri_customers', JSON.stringify(custsArr));
+        window.dispatchEvent(new CustomEvent('tsukuri_order_placed', { detail: newOrderObj }));
+      } catch {}
 
       setConfirmedOrder({
         ...orderResult,

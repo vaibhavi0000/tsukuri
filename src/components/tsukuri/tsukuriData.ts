@@ -65,6 +65,17 @@ export interface TsukuriProduct {
   deliveryPartner?: string;
   deliveryCharges?: number;
   deliveryEta?: string;
+  videoPosition?: 'first' | 'after_1st' | 'after_2nd' | 'end';
+  officialOfferText?: string;
+}
+
+export function formatMediaUrl(url?: string): string {
+  if (!url) return '';
+  if (typeof url !== 'string') return '';
+  if (url.startsWith('/api/uploads/')) {
+    return url.replace('/api/uploads/', '/uploads/');
+  }
+  return url;
 }
 
 export function formatPrice(priceINR: number): string {
@@ -120,6 +131,89 @@ export function calculatePaymentAdjustedTotal(
 }
 
 export const INITIAL_TSUKURI_PRODUCTS: TsukuriProduct[] = [
+  {
+    id: 57005,
+    name: 'LL',
+    sku: 'TSU-GEN-34',
+    japaneseName: 'LL (造り)',
+    category: 'Home & Zen',
+    priceINR: 599,
+    originalMRPINR: 999,
+    discountPercent: 35,
+    customOfferBadge: 'SPECIAL STUDIO DEAL: 20% OFF ON UPI',
+    officialOfferText: 'SPECIAL STUDIO DEAL: 20% OFF ON UPI / ONLINE PAYMENT',
+    videoPosition: 'end',
+    colorVariants: [],
+    comboOffers: [
+      {
+        quantity: 1,
+        label: 'Single Piece (1x)',
+        priceINR: 599,
+        popular: false,
+      },
+      {
+        quantity: 2,
+        label: 'Duo Combo Pack (2x)',
+        priceINR: 1099,
+        savePercent: 12,
+        popular: true,
+      },
+      {
+        quantity: 3,
+        label: 'Studio Trio Pack (3x)',
+        priceINR: 1499,
+        savePercent: 20,
+        popular: false,
+      },
+    ],
+    carouselVideos: [
+      {
+        id: 'vid-demo-1',
+        title: '3D Print Timelapse & Slicing Quality',
+        url: 'https://assets.mixkit.co/videos/preview/mixkit-modern-minimalist-living-room-with-plants-41617-large.mp4',
+      },
+      {
+        id: 'vid-1791273885128',
+        title: 'Bambu Lab High-Precision Layer Finish',
+        url: '/uploads/ll_carousel_vid_1_57005.mp4',
+      },
+      {
+        id: 'vid-1791273904518',
+        title: '360° Tactile Texture & Bio-PLA Craft',
+        url: '/uploads/ll_carousel_vid_2_57005.mp4',
+      },
+      {
+        id: 'vid-1791273951214',
+        title: 'Self-Watering Chamber Water Flow Test',
+        url: '/uploads/ll_carousel_vid_3_57005.mp4',
+      },
+    ],
+    deliveryPartner: 'BlueDart Surface Express',
+    deliveryCharges: 49,
+    deliveryEta: '3 to 4 Days Pan-India',
+    rating: 5,
+    reviewsCount: 1,
+    description: 'Parametric golden ratio ribbed architecture with self-watering chamber. The chamber GOD.',
+    tagline: 'Parametric golden ratio ribbed architecture w',
+    material: 'Bio-Matte Matcha PLA',
+    filamentType: 'Matte Matcha PLA',
+    weightGrams: 165,
+    printTimeHours: 4.5,
+    dimensions: '140 × 140 × 120 mm',
+    imageUrl: '/uploads/messho_5_png_1791273714584_2337.png',
+    images: [
+      '/uploads/messho_5_png_1791273714584_2337.png',
+      '/uploads/mesho_6_png_1791273715184_93.png',
+      '/uploads/mesho_4_png_1791273715828_7926.png',
+      '/uploads/mesho_3_png_1791273716653_2808.png',
+      '/uploads/mesho_2_png_1791273717397_4048.png',
+    ],
+    videoUrl: '/uploads/ll_hero_timelapse_57005.mp4',
+    inStock: true,
+    stockCount: 24,
+    colorHex: '#607d64',
+    badge: '35% OFF',
+  },
   {
     id: 1,
     name: 'Zen Wave Planter',

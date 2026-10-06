@@ -37,6 +37,15 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Serve static uploaded photos and videos reliably across desktop, mobile and preview
+const publicUploads = path.join(process.cwd(), 'public', 'uploads');
+const dataUploads = path.join(process.cwd(), 'data', 'uploads');
+app.use('/uploads', express.static(publicUploads));
+app.use('/uploads', express.static(dataUploads));
+app.use('/api/uploads', express.static(publicUploads));
+app.use('/api/uploads', express.static(dataUploads));
+
 app.use('/api', apiRouter);
 
 // Error handler for request aborts

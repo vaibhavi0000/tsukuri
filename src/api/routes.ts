@@ -503,15 +503,20 @@ apiRouter.delete('/products/:id', async (req: Request, res: Response) => {
 });
 
 // ----------------------------------------------------
-// TSUKURI STUDIO PRODUCTS & MEDIA (Cloud Sync Across Desktop & Mobile)
+// TSUKURI STUDIO PRODUCTS & MEDIA (Cloud Sync Across Desktop & Mobile & Vercel)
 // ----------------------------------------------------
 const TSUKURI_PRODUCTS_FILE = path.join(process.cwd(), 'data', 'tsukuri_products.json');
 const UPLOADS_DIR = path.join(process.cwd(), 'data', 'uploads');
+const PUBLIC_UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads');
 
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
+if (!fs.existsSync(PUBLIC_UPLOADS_DIR)) {
+  fs.mkdirSync(PUBLIC_UPLOADS_DIR, { recursive: true });
+}
 
+apiRouter.use('/uploads', express.static(PUBLIC_UPLOADS_DIR));
 apiRouter.use('/uploads', express.static(UPLOADS_DIR));
 
 // Upload media endpoint for images, videos & 3D files (supports base64 data URLs)
@@ -549,10 +554,22 @@ apiRouter.post('/upload-media', (req: Request, res: Response) => {
 
     const safeBase = (filename || 'photo').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
     const uniqueName = `${safeBase}_${Date.now()}_${Math.floor(Math.random() * 10000)}.${ext}`;
-    const filePath = path.join(UPLOADS_DIR, uniqueName);
+    const filePathData = path.join(UPLOADS_DIR, uniqueName);
+    const filePathPublic = path.join(PUBLIC_UPLOADS_DIR, uniqueName);
 
-    fs.writeFileSync(filePath, buffer);
-    const url = `/api/uploads/${uniqueName}`;
+    // Save to both data/uploads and public/uploads so Vercel builds include all media
+    try {
+      fs.writeFileSync(filePathPublic, buffer);
+    } catch (e) {
+      console.warn('Could not write to public/uploads:', e);
+    }
+    try {
+      fs.writeFileSync(filePathData, buffer);
+    } catch (e) {
+      console.warn('Could not write to data/uploads:', e);
+    }
+
+    const url = `/uploads/${uniqueName}`;
     res.json({ success: true, url, filename: uniqueName });
   } catch (err: any) {
     console.error('Error uploading media:', err);

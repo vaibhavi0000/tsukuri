@@ -60,19 +60,39 @@ export const App: React.FC = () => {
       }
     });
 
-    // 3. Fallback to local server API if running in full-stack dev environment
+    // 3. Fallback to local server API or static Vercel JSON endpoint
     const loadFromLocalApi = async () => {
       try {
         const res = await fetch('/api/tsukuri-products');
         if (res.ok) {
-          const serverProducts = await res.json();
-          if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
-            setProductsList((prev) => {
-              if (prev.length === 0) {
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const serverProducts = await res.json();
+            if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
+              setProductsList((prev) => {
                 try {
                   localStorage.setItem('tsukuri_products', JSON.stringify(serverProducts));
                 } catch {}
                 return serverProducts;
+              });
+              return;
+            }
+          }
+        }
+      } catch {}
+
+      // Fallback for Vercel static hosting: fetch static json built into public/data
+      try {
+        const staticRes = await fetch('/data/tsukuri_products.json');
+        if (staticRes.ok) {
+          const staticProducts = await staticRes.json();
+          if (Array.isArray(staticProducts) && staticProducts.length > 0 && isMounted) {
+            setProductsList((prev) => {
+              if (prev.length === 0 || prev.length < staticProducts.length) {
+                try {
+                  localStorage.setItem('tsukuri_products', JSON.stringify(staticProducts));
+                } catch {}
+                return staticProducts;
               }
               return prev;
             });

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "node -e \"const fs=require('fs'); if(!fs.existsSync('public/uploads')) fs.mkdirSync('public/uploads',{recursive:true}); if(fs.existsSync('data/uploads')) { fs.cpSync('data/uploads', 'public/uploads', {recursive:true}); } if(!fs.existsSync('public/data')) fs.mkdirSync('public/data',{recursive:true}); if(fs.existsSync('data/tsukuri_products.json')) { fs.copyFileSync('data/tsukuri_products.json', 'public/data/tsukuri_products.json'); }\" && vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

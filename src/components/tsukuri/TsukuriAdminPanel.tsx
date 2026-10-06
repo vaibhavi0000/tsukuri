@@ -47,6 +47,8 @@ import {
   ChevronLeft,
   Activity,
   Mail,
+  KeyRound,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   TsukuriProduct,
@@ -75,6 +77,8 @@ import { ActivityLogTab } from './adminTabs/ActivityLogTab.tsx';
 import { PartnersSplitTab } from './adminTabs/PartnersSplitTab.tsx';
 import { EmailDeliverySettingsCard } from './adminTabs/EmailDeliverySettingsCard.tsx';
 import { DiscountsTab } from './adminTabs/DiscountsTab.tsx';
+import { AuditLogsTab, AuditLogItem } from './adminTabs/AuditLogsTab.tsx';
+import { formatMediaUrl } from './tsukuriData.ts';
 
 interface TsukuriAdminPanelProps {
   onBackToStore: () => void;
@@ -149,7 +153,23 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   });
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginPasscode, setLoginPasscode] = useState('');
   const [loginError, setLoginError] = useState('');
+
+  // Helper to record persistent audit logs for Aditya & Anshuman
+  const addAuditLog = (entry: Omit<AuditLogItem, 'id' | 'timestamp'>) => {
+    const newLog: AuditLogItem = {
+      ...entry,
+      id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      const existing = localStorage.getItem('tsukuri_audit_logs');
+      const parsed = existing ? JSON.parse(existing) : [];
+      const updated = [newLog, ...(Array.isArray(parsed) ? parsed : [])];
+      localStorage.setItem('tsukuri_audit_logs', JSON.stringify(updated));
+    } catch {}
+  };
 
   // All Functions matching database & system requirements
   const [activeTab, setActiveTab] = useState<
@@ -175,12 +195,22 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     | 'ai_analyzer'
     | 'reports'
     | 'settings'
+    | 'audit_logs'
   >('orders');
 
   const scrollNavRef = useRef<HTMLDivElement>(null);
 
-  // Real database orders
-  const [ordersList, setOrdersList] = useState<WorkshopOrder[]>([]);
+  // Real database orders (with localStorage persistence for Vercel)
+  const [ordersList, setOrdersList] = useState<WorkshopOrder[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_orders');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('All');
@@ -337,7 +367,16 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     isRepeatCustomer?: boolean;
     notes?: string | null;
   }
-  const [customersList, setCustomersList] = useState<AdminCustomerRecord[]>([]);
+  const [customersList, setCustomersList] = useState<AdminCustomerRecord[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_customers');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [adminInvoiceToast, setAdminInvoiceToast] = useState<string | null>(null);
   const [sendingInvoiceOrderId, setSendingInvoiceOrderId] = useState<string | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -519,7 +558,9 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [prodFormPrice, setProdFormPrice] = useState(599);
   const [prodFormOriginalMRP, setProdFormOriginalMRP] = useState(799);
   const [prodFormDiscountPercent, setProdFormDiscountPercent] = useState(25);
-  const [prodFormCustomOfferBadge, setProdFormCustomOfferBadge] = useState('SPECIAL STUDIO DEAL: 10% OFF ON UPI');
+  const [prodFormCustomOfferBadge, setProdFormCustomOfferBadge] = useState('SPECIAL STUDIO DEAL: 20% OFF ON UPI');
+  const [prodFormOfficialOfferText, setProdFormOfficialOfferText] = useState('SPECIAL STUDIO DEAL: 20% OFF ON UPI');
+  const [prodFormVideoPosition, setProdFormVideoPosition] = useState<'first' | 'after_1st' | 'after_2nd' | 'end'>('end');
   const [prodFormMaterial, setProdFormMaterial] = useState('Bio-Matte Matcha PLA');
   const [prodFormFilament, setProdFormFilament] = useState<'Matte Matcha PLA' | 'Terracotta PETG' | 'Teak Wood Composite' | 'Silk Obsidian PLA' | 'Volcanic Basalt Ceramic'>('Matte Matcha PLA');
   const [prodFormColorOptions, setProdFormColorOptions] = useState('Matte Matcha, Terracotta, Teak Teak');
@@ -630,8 +671,36 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     } catch {}
   }, [campaignsList]);
 
-  // Fetch live orders & telemetry
+  // Fetch live orders & telemetry (merging server API and localStorage)
   const fetchLiveData = () => {
+    // 1. Sync from localStorage first (works offline, static Vercel, and dev)
+    try {
+      const storedOrders = localStorage.getItem('tsukuri_orders');
+      if (storedOrders) {
+        const parsed = JSON.parse(storedOrders);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setOrdersList((prev) => {
+            const idMap = new Map();
+            prev.forEach((o) => idMap.set(o.orderNumber || o.id, o));
+            parsed.forEach((o) => idMap.set(o.orderNumber || o.id, o));
+            return Array.from(idMap.values());
+          });
+        }
+      }
+      const storedCusts = localStorage.getItem('tsukuri_customers');
+      if (storedCusts) {
+        const parsed = JSON.parse(storedCusts);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCustomersList((prev) => {
+            const keyMap = new Map();
+            prev.forEach((c) => keyMap.set((c.email || c.phone || c.name || '').toLowerCase(), c));
+            parsed.forEach((c) => keyMap.set((c.email || c.phone || c.name || '').toLowerCase(), c));
+            return Array.from(keyMap.values());
+          });
+        }
+      }
+    } catch {}
+
     fetch('/api/orders')
       .then((res) => res.json())
       .then((data) => {
@@ -664,7 +733,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
             trackingNumber: o.trackingNumber || `BLU${Math.floor(10000000 + Math.random() * 90000000)}`,
             notes: o.notes || 'Handle with care: 100% bio-PLA ceramic texture',
           }));
-          setOrdersList(mapped);
+          setOrdersList((prev) => {
+            const map = new Map();
+            mapped.forEach((m) => map.set(m.orderNumber || m.id, m));
+            prev.forEach((p) => {
+              if (!map.has(p.orderNumber || p.id)) map.set(p.orderNumber || p.id, p);
+            });
+            return Array.from(map.values());
+          });
         }
       })
       .catch(() => {})
@@ -675,7 +751,15 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          setCustomersList(data);
+          setCustomersList((prev) => {
+            const map = new Map();
+            data.forEach((d) => map.set((d.email || d.phone || d.name || '').toLowerCase(), d));
+            prev.forEach((p) => {
+              const k = (p.email || p.phone || p.name || '').toLowerCase();
+              if (!map.has(k)) map.set(k, p);
+            });
+            return Array.from(map.values());
+          });
         }
       })
       .catch(() => {});
@@ -688,6 +772,21 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       })
       .catch(() => {});
   };
+
+  // Real-time synchronization when customer data is filled in storefront
+  useEffect(() => {
+    const handleCustomerSaved = () => {
+      fetchLiveData();
+    };
+    window.addEventListener('tsukuri_customer_saved', handleCustomerSaved);
+    window.addEventListener('tsukuri_order_placed', handleCustomerSaved);
+    window.addEventListener('storage', handleCustomerSaved);
+    return () => {
+      window.removeEventListener('tsukuri_customer_saved', handleCustomerSaved);
+      window.removeEventListener('tsukuri_order_placed', handleCustomerSaved);
+      window.removeEventListener('storage', handleCustomerSaved);
+    };
+  }, []);
 
   // Requirement 7: Trigger Live AI Analyzer
   const runLiveAiAnalysis = async (retryCount = 0) => {
@@ -778,20 +877,85 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     }
   }, [isAuthenticated]);
 
-  // Handle Admin Login (Requirement 20: Only allows two people: Aditya and Anshuman)
+  // Requirement 8: Admin panel accessed ONLY by Aditya (Pass code: 3078) and Anshuman (Pass code: 7985)
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUser = loginUsername.trim().toLowerCase();
-    if (cleanUser === 'aditya' || cleanUser === 'anshuman' || cleanUser === 'tsukuri') {
-      const partnerName = cleanUser === 'aditya' ? 'Aditya' : cleanUser === 'anshuman' ? 'Anshuman' : 'Aditya & Anshuman';
-      setCurrentAdminUser(partnerName);
-      sessionStorage.setItem('tsukuri_admin_user', partnerName);
-      sessionStorage.setItem('tsukuri_admin_auth', 'true');
-      setIsAuthenticated(true);
-      setLoginError('');
-    } else {
-      setLoginError('Access restricted. Admin panel strictly allows only Aditya and Anshuman.');
+    const cleanCode = loginPasscode.trim();
+
+    // Check Aditya credentials & passcode
+    if (cleanUser === 'aditya' || cleanUser === 'adi') {
+      if (cleanCode === '3078') {
+        setCurrentAdminUser('Aditya');
+        sessionStorage.setItem('tsukuri_admin_user', 'Aditya');
+        sessionStorage.setItem('tsukuri_admin_auth', 'true');
+        setIsAuthenticated(true);
+        setLoginError('');
+        addAuditLog({
+          admin: 'Aditya',
+          passcodeVerified: '3078',
+          action: 'Co-Founder Security Authentication',
+          category: 'auth',
+          details: 'Aditya authenticated successfully with security pass code 3078.',
+          status: 'Verified',
+          sessionClient: 'Console Session · 3078 Verified',
+        });
+        return;
+      } else {
+        setLoginError('Invalid Pass Code for Aditya. Security pass code 3078 is required.');
+        addAuditLog({
+          admin: 'Aditya',
+          passcodeVerified: cleanCode || 'None',
+          action: 'Failed Authentication Attempt',
+          category: 'security',
+          details: `Aditya entered incorrect pass code "${cleanCode || 'empty'}". Required: 3078.`,
+          status: 'Blocked',
+        });
+        return;
+      }
     }
+
+    // Check Anshuman credentials & passcode
+    if (cleanUser === 'anshuman' || cleanUser === 'anshu') {
+      if (cleanCode === '7985') {
+        setCurrentAdminUser('Anshuman');
+        sessionStorage.setItem('tsukuri_admin_user', 'Anshuman');
+        sessionStorage.setItem('tsukuri_admin_auth', 'true');
+        setIsAuthenticated(true);
+        setLoginError('');
+        addAuditLog({
+          admin: 'Anshuman',
+          passcodeVerified: '7985',
+          action: 'Co-Founder Security Authentication',
+          category: 'auth',
+          details: 'Anshuman authenticated successfully with security pass code 7985.',
+          status: 'Verified',
+          sessionClient: 'Console Session · 7985 Verified',
+        });
+        return;
+      } else {
+        setLoginError('Invalid Pass Code for Anshuman. Security pass code 7985 is required.');
+        addAuditLog({
+          admin: 'Anshuman',
+          passcodeVerified: cleanCode || 'None',
+          action: 'Failed Authentication Attempt',
+          category: 'security',
+          details: `Anshuman entered incorrect pass code "${cleanCode || 'empty'}". Required: 7985.`,
+          status: 'Blocked',
+        });
+        return;
+      }
+    }
+
+    setLoginError('Access restricted. Admin panel strictly allows only Aditya (Pass code: 3078) and Anshuman (Pass code: 7985).');
+    addAuditLog({
+      admin: 'System',
+      passcodeVerified: cleanCode || 'None',
+      action: 'Unauthorized Login Blocked',
+      category: 'security',
+      details: `Unauthorized username "${loginUsername}" attempted authentication.`,
+      status: 'Blocked',
+    });
   };
 
   const handleLogout = () => {
@@ -1010,6 +1174,8 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
           originalMRPINR: Number(prodFormOriginalMRP),
           discountPercent: Number(prodFormDiscountPercent),
           customOfferBadge: prodFormCustomOfferBadge,
+          officialOfferText: prodFormOfficialOfferText,
+          videoPosition: prodFormVideoPosition,
           colorVariants: prodFormColorVariants,
           comboOffers: prodFormComboOffers,
           carouselVideos: prodFormCarouselVideos,
@@ -1027,6 +1193,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
           description: prodFormDesc,
           stockCount: Number(prodFormStock),
         });
+        addAuditLog({
+          admin: currentAdminUser === 'Anshuman' ? 'Anshuman' : 'Aditya',
+          passcodeVerified: currentAdminUser === 'Anshuman' ? '7985' : '3078',
+          action: 'Product Updated',
+          category: 'product',
+          details: `${currentAdminUser} updated product "${prodFormName}" (₹${prodFormPrice}) with ${prodFormComboOffers.length} combo tier(s) and video position "${prodFormVideoPosition}".`,
+          status: 'Success',
+        });
       } else {
         const nextId = Math.max(0, ...productsList.map((p) => (p.id < 2000000000 ? p.id : 0))) + 1;
         const newProd: TsukuriProduct = {
@@ -1039,6 +1213,8 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
           originalMRPINR: Number(prodFormOriginalMRP),
           discountPercent: Number(prodFormDiscountPercent),
           customOfferBadge: prodFormCustomOfferBadge,
+          officialOfferText: prodFormOfficialOfferText,
+          videoPosition: prodFormVideoPosition,
           colorVariants: prodFormColorVariants,
           comboOffers: prodFormComboOffers,
           carouselVideos: prodFormCarouselVideos,
@@ -1063,6 +1239,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
           badge: `${prodFormDiscountPercent}% OFF`,
         };
         await onAddProduct(newProd);
+        addAuditLog({
+          admin: currentAdminUser === 'Anshuman' ? 'Anshuman' : 'Aditya',
+          passcodeVerified: currentAdminUser === 'Anshuman' ? '7985' : '3078',
+          action: 'Product Published Live',
+          category: 'product',
+          details: `${currentAdminUser} published new drop "${prodFormName}" (₹${prodFormPrice}) with ${prodFormComboOffers.length} quantity tier(s).`,
+          status: 'Success',
+        });
       }
       const savedName = prodFormName;
       const wasEditing = !!editingProductId;
@@ -1089,7 +1273,9 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     setProdFormPrice(p.priceINR);
     setProdFormOriginalMRP(p.originalMRPINR || Math.round(p.priceINR * 1.35));
     setProdFormDiscountPercent(p.discountPercent !== undefined ? p.discountPercent : 25);
-    setProdFormCustomOfferBadge(p.customOfferBadge || 'SPECIAL STUDIO DEAL: 10% OFF ON UPI');
+    setProdFormCustomOfferBadge(p.customOfferBadge || 'SPECIAL STUDIO DEAL: 20% OFF ON UPI');
+    setProdFormOfficialOfferText(p.officialOfferText || p.customOfferBadge || 'SPECIAL STUDIO DEAL: 20% OFF ON UPI');
+    setProdFormVideoPosition(p.videoPosition || 'end');
     setProdFormDeliveryPartner(p.deliveryPartner || 'BlueDart Surface Express');
     setProdFormDeliveryCharges(p.deliveryCharges !== undefined ? p.deliveryCharges : 0);
     setProdFormDeliveryEta(p.deliveryEta || '3 to 4 Days Pan-India');
@@ -1364,8 +1550,30 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 required
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder=""
+                placeholder="Enter password"
                 className="w-full text-xs font-mono bg-[#e8ece1]/40 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#1e4b3e]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#1a2e26] flex items-center gap-1.5">
+                  <KeyRound className="w-4 h-4 text-[#ea8f5a]" />
+                  <span>Security Pass Code</span>
+                </label>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Aditya (3078) · Anshuman (7985)
+                </span>
+              </div>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                required
+                value={loginPasscode}
+                onChange={(e) => setLoginPasscode(e.target.value)}
+                placeholder="Enter 4-digit Pass Code"
+                className="w-full text-xs font-mono font-bold tracking-widest bg-[#e8ece1]/40 border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-[#1e4b3e]"
               />
             </div>
 
@@ -1542,7 +1750,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
               </span>
             </div>
             <span className="px-2.5 py-0.5 rounded-full bg-[#1e4b3e] text-[#f3b755] font-mono text-[10px] font-bold">
-              21 Tabs
+              22 Tabs
             </span>
           </div>
 
@@ -1587,18 +1795,18 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 items: [
                   { id: 'discounts', label: '14. Discount Codes & Coupons', icon: Tag, badge: 'Deals' },
                   { id: 'campaigns', label: '15. Campaigns & ROAS', icon: Megaphone, badge: 'ROAS' },
-                  { id: 'customers', label: '16. Customers (CRM)', icon: Users },
+                  { id: 'customers', label: '16. Customer Data', icon: Users, badge: 'Auto' },
                   { id: 'ai_analyzer', label: '17. Live AI Advisor', icon: Bot, badge: 'AI' },
                   { id: 'activity_log', label: '18. Live Activity Log', icon: Activity },
                 ],
               },
               {
-                category: 'Calculators & Profile',
+                category: 'Calculators & Security',
                 items: [
-                  { id: 'calculator', label: '18. Costing Calculator', icon: Calculator },
-                  { id: 'reports', label: '19. Reports & Exports', icon: BarChart3 },
-                  { id: 'users', label: '20. Admin Accounts', icon: Lock },
+                  { id: 'calculator', label: '19. Costing Calculator', icon: Calculator },
+                  { id: 'reports', label: '20. Reports & Exports', icon: BarChart3 },
                   { id: 'settings', label: '21. Studio Profile & GSTIN', icon: Settings },
+                  { id: 'audit_logs', label: '22. Audit Logs', icon: ShieldCheck, badge: 'Passcode' },
                 ],
               },
             ].map((section) => (
@@ -3455,24 +3663,54 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 </label>
               </div>
 
-              {/* Requirement 2: Special Studio Offer & Discount Percent */}
+              {/* Requirement 5: Special Studio Offer, Official Offer & Product Video Placement */}
               <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 space-y-3">
-                <span className="text-[11px] font-black text-amber-900 uppercase tracking-wider block">
-                  Studio Deals, Discounts & Promotional Offers
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-amber-900 uppercase tracking-wider block">
+                    Official Studio Offers & Video Gallery Placement
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-bold bg-amber-100/80 px-2 py-0.5 rounded-full">
+                    Storefront Displays
+                  </span>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block mb-1 text-[11px] text-amber-800 font-bold">Custom Offer Badge</label>
+                    <label className="block mb-1 text-[11px] text-amber-900 font-bold">
+                      Official Studio Offer (Displays Below Product)
+                    </label>
                     <input
                       type="text"
-                      placeholder="e.g. SPECIAL STUDIO DEAL: 10% OFF ON UPI"
+                      placeholder="e.g. SPECIAL STUDIO DEAL: 20% OFF ON UPI"
+                      value={prodFormOfficialOfferText}
+                      onChange={(e) => setProdFormOfficialOfferText(e.target.value)}
+                      className="w-full bg-white border border-amber-300 rounded-xl p-2 text-xs font-bold text-amber-900"
+                    />
+                    <span className="text-[10px] text-amber-700 mt-0.5 block">
+                      Shown prominently in the amber banner below the product details.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-[11px] text-amber-900 font-bold">
+                      Offer Badge on Image (Fades out after 6 seconds)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 25% OFF DROP DEAL"
                       value={prodFormCustomOfferBadge}
                       onChange={(e) => setProdFormCustomOfferBadge(e.target.value)}
                       className="w-full bg-white border border-amber-300 rounded-xl p-2 text-xs font-bold text-amber-900"
                     />
+                    <span className="text-[10px] text-amber-700 mt-0.5 block">
+                      Sticked on image when page opens, auto-removed after 6 seconds.
+                    </span>
                   </div>
+
                   <div>
-                    <label className="block mb-1 text-[11px] text-amber-800 font-bold">Discount Percentage (%)</label>
+                    <label className="block mb-1 text-[11px] text-amber-900 font-bold">
+                      Discount Percentage (%)
+                    </label>
                     <input
                       type="number"
                       min={0}
@@ -3481,6 +3719,25 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                       onChange={(e) => setProdFormDiscountPercent(Number(e.target.value))}
                       className="w-full bg-white border border-amber-300 rounded-xl p-2 text-xs font-bold text-amber-900 font-mono"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block mb-1 text-[11px] text-amber-900 font-bold">
+                      Product Video Position in Gallery
+                    </label>
+                    <select
+                      value={prodFormVideoPosition}
+                      onChange={(e) => setProdFormVideoPosition(e.target.value as any)}
+                      className="w-full bg-white border border-amber-300 rounded-xl p-2 text-xs font-bold text-amber-900"
+                    >
+                      <option value="end">After images end (End of gallery - Default)</option>
+                      <option value="first">First slide (Hero position)</option>
+                      <option value="after_1st">After 1st image</option>
+                      <option value="after_2nd">After 2nd image</option>
+                    </select>
+                    <span className="text-[10px] text-amber-700 mt-0.5 block">
+                      Admin choice of where product video appears when swiping images.
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3562,96 +3819,207 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 </div>
               </div>
 
-              {/* Requirement 2: Combo & Quantity Tier Pricing */}
+              {/* Requirement 6: Automatic and Editable Pricing for Different Quantities from Selling Price */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-[#1e4b3e] uppercase block">
-                    Combo Deals & Quantity Pricing ({prodFormComboOffers.length})
-                  </label>
-                  <span className="text-[10px] text-slate-400">Custom pricing for multi-item packs</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-[#1e4b3e] uppercase block flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-[#ea8f5a]" />
+                      <span>Quantity Tier Deals & Editable Pricing ({prodFormComboOffers.length})</span>
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      Multi-quantity pricing calculated from Selling Price (₹{prodFormPrice}). Full manual editing enabled.
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const basePrice = Number(prodFormPrice) || 599;
+                      setProdFormComboOffers([
+                        { quantity: 1, label: 'Single Piece (1x)', priceINR: basePrice, popular: false, savePercent: 0 },
+                        { quantity: 2, label: 'Duo Combo Pack (2x)', priceINR: Math.round(basePrice * 2 * 0.9), popular: true, savePercent: 10 },
+                        { quantity: 3, label: 'Studio Trio Pack (3x)', priceINR: Math.round(basePrice * 3 * 0.82), popular: false, savePercent: 18 },
+                        { quantity: 4, label: 'Workshop Quad Pack (4x)', priceINR: Math.round(basePrice * 4 * 0.75), popular: false, savePercent: 25 },
+                      ]);
+                      setProductActionToast(`Auto-calculated 1x, 2x, 3x, 4x tiers from ₹${basePrice}`);
+                      setTimeout(() => setProductActionToast(''), 3000);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] text-xs font-bold transition-all flex items-center gap-1.5 self-start sm:self-auto cursor-pointer shadow-xs active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>⚡ Auto-Calculate Tiers from Selling Price</span>
+                  </button>
                 </div>
 
-                <div className="space-y-1.5">
+                {/* In-place Editable Quantity Tiers */}
+                <div className="space-y-2">
                   {prodFormComboOffers.map((c, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-xl border border-slate-200 text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded-full bg-[#1e4b3e] text-[#f3b755] font-bubbly text-[10px]">
-                          {c.quantity}x
-                        </span>
-                        <span className="font-bold text-[#1a2e26]">{c.label}</span>
-                        <span className="font-bubbly text-[#1e4b3e] font-bold">{formatPrice(c.priceINR)}</span>
-                        {c.savePercent ? (
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded">
-                            Save {c.savePercent}%
-                          </span>
-                        ) : null}
-                        {c.popular && (
-                          <span className="text-[9px] font-bubbly bg-[#f3b755] text-[#1a2e26] px-1.5 rounded">
-                            POPULAR
-                          </span>
-                        )}
+                    <div
+                      key={idx}
+                      className="p-2.5 bg-white rounded-xl border border-slate-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                        {/* Quantity */}
+                        <div className="flex items-center gap-1 bg-[#e8ece1]/60 px-2 py-1 rounded-lg">
+                          <span className="text-[10px] font-bold text-slate-500">Qty:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={c.quantity}
+                            onChange={(e) => {
+                              const val = Math.max(1, Number(e.target.value));
+                              setProdFormComboOffers((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, quantity: val } : item))
+                              );
+                            }}
+                            className="w-12 text-xs font-bold text-center bg-white border border-slate-300 rounded px-1 py-0.5"
+                          />
+                        </div>
+
+                        {/* Tier Label */}
+                        <div className="flex-1 min-w-[140px]">
+                          <input
+                            type="text"
+                            value={c.label}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setProdFormComboOffers((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, label: val } : item))
+                              );
+                            }}
+                            placeholder="Tier label (e.g. Duo Combo Pack)"
+                            className="w-full text-xs font-bold bg-white border border-slate-200 rounded-lg px-2 py-1"
+                          />
+                        </div>
+
+                        {/* Price INR */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-slate-500">₹</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={c.priceINR}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setProdFormComboOffers((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, priceINR: val } : item))
+                              );
+                            }}
+                            className="w-20 text-xs font-bold font-mono text-[#1e4b3e] bg-white border border-slate-200 rounded-lg px-2 py-1"
+                          />
+                        </div>
+
+                        {/* Save % */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-slate-500">Save %:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={90}
+                            value={c.savePercent ?? 0}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setProdFormComboOffers((prev) =>
+                                prev.map((item, i) => (i === idx ? { ...item, savePercent: val } : item))
+                              );
+                            }}
+                            className="w-14 text-xs font-bold text-emerald-700 bg-white border border-slate-200 rounded-lg px-2 py-1"
+                          />
+                        </div>
+
+                        {/* Popular Badge Toggle */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProdFormComboOffers((prev) =>
+                              prev.map((item, i) => (i === idx ? { ...item, popular: !item.popular } : item))
+                            );
+                          }}
+                          className={`px-2 py-1 rounded-md text-[10px] font-bubbly transition-colors cursor-pointer ${
+                            c.popular
+                              ? 'bg-[#f3b755] text-[#1a2e26] font-black'
+                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                          }`}
+                        >
+                          {c.popular ? '★ POPULAR' : 'Mark Popular'}
+                        </button>
                       </div>
+
+                      {/* Remove Tier */}
                       <button
                         type="button"
                         onClick={() => setProdFormComboOffers((prev) => prev.filter((_, i) => i !== idx))}
-                        className="text-slate-300 hover:text-rose-500 p-1"
-                        title="Remove Combo"
+                        className="text-slate-300 hover:text-rose-500 p-1.5 self-end sm:self-center transition-colors"
+                        title="Remove Tier"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
                 </div>
 
                 {/* Add new combo deal row */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                  <input
-                    type="number"
-                    min={1}
-                    placeholder="Qty (e.g. 2)"
-                    value={newComboQty}
-                    onChange={(e) => {
-                      const q = Number(e.target.value);
-                      setNewComboQty(q);
-                      setNewComboLabel(`${q}x Multi Combo Pack`);
-                      setNewComboPrice(Math.round(prodFormPrice * q * 0.88));
-                    }}
-                    className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Label (e.g. Duo Pack)"
-                    value={newComboLabel}
-                    onChange={(e) => setNewComboLabel(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Combo Price INR"
-                    value={newComboPrice || ''}
-                    onChange={(e) => setNewComboPrice(Number(e.target.value))}
-                    className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono font-bold"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!newComboQty || !newComboPrice) return;
-                      setProdFormComboOffers((prev) => [
-                        ...prev,
-                        {
-                          quantity: Number(newComboQty),
-                          label: newComboLabel || `${newComboQty}x Combo Pack`,
-                          priceINR: Number(newComboPrice),
-                          savePercent: Number(newComboSave) || 10,
-                          popular: prev.length === 1,
-                        }
-                      ]);
-                      setNewComboLabel('');
-                    }}
-                    className="px-3 py-2 bg-[#1e4b3e] text-[#f3b755] font-bubbly text-xs rounded-xl hover:bg-[#15342b]"
-                  >
-                    + Add Combo
-                  </button>
+                <div className="p-2.5 bg-white/70 rounded-xl border border-dashed border-slate-300 space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                    + Add Custom Quantity Tier
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-0.5">
+                    <input
+                      type="number"
+                      min={1}
+                      placeholder="Qty (e.g. 5)"
+                      value={newComboQty}
+                      onChange={(e) => {
+                        const q = Number(e.target.value);
+                        setNewComboQty(q);
+                        setNewComboLabel(`${q}x Pack`);
+                        setNewComboPrice(Math.round(prodFormPrice * q * 0.72));
+                      }}
+                      className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Label (e.g. Mega Pack)"
+                      value={newComboLabel}
+                      onChange={(e) => setNewComboLabel(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Price INR"
+                      value={newComboPrice || ''}
+                      onChange={(e) => setNewComboPrice(Number(e.target.value))}
+                      className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono font-bold"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Save %"
+                      value={newComboSave || ''}
+                      onChange={(e) => setNewComboSave(Number(e.target.value))}
+                      className="bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newComboQty || !newComboPrice) return;
+                        setProdFormComboOffers((prev) => [
+                          ...prev,
+                          {
+                            quantity: Number(newComboQty),
+                            label: newComboLabel || `${newComboQty}x Combo Pack`,
+                            priceINR: Number(newComboPrice),
+                            savePercent: Number(newComboSave) || 10,
+                            popular: false,
+                          }
+                        ]);
+                        setNewComboLabel('');
+                      }}
+                      className="px-3 py-2 bg-[#1e4b3e] text-[#f3b755] font-bubbly text-xs rounded-xl hover:bg-[#15342b] cursor-pointer"
+                    >
+                      + Add Tier
+                    </button>
+                  </div>
                 </div>
               </div>
 

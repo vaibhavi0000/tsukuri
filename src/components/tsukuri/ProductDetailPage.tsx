@@ -21,8 +21,17 @@ import {
   Tag,
   ChevronLeft,
   ChevronRight,
+  Volume2,
+  VolumeX,
+  Pause,
 } from 'lucide-react';
-import { TsukuriProduct, formatPrice, ProductReview, ComboTierOffer } from './tsukuriData.ts';
+import {
+  TsukuriProduct,
+  formatPrice,
+  ProductReview,
+  ComboTierOffer,
+  formatMediaUrl,
+} from './tsukuriData.ts';
 
 interface ProductDetailPageProps {
   product: TsukuriProduct;
@@ -54,31 +63,62 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const selectedVariant = product.colorVariants?.find((v) => v.name === selectedColor);
   const [selectedCombo, setSelectedCombo] = useState<ComboTierOffer | null>(null);
 
-  // Multi-media state
-  const mediaList = product.images && product.images.length > 0
-    ? product.images
-    : [product.imageUrl];
-  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
-  const [isVideoActive, setIsVideoActive] = useState(false);
+  // Requirement 4: Multi-media state (Images + Product's Own Video positioned by Admin)
+  interface MediaItem {
+    type: 'image' | 'video';
+    url: string;
+  }
 
-  // Mobile finger sliding / swipe gestures for product images
+  const rawImages = (product.images && product.images.length > 0 ? product.images : [product.imageUrl])
+    .map(formatMediaUrl);
+  const cleanProductVideo = formatMediaUrl(product.videoUrl);
+
+  const combinedMediaList: MediaItem[] = React.useMemo(() => {
+    const list: MediaItem[] = rawImages.map((u) => ({ type: 'image', url: u }));
+    if (!cleanProductVideo) return list;
+
+    const vidItem: MediaItem = { type: 'video', url: cleanProductVideo };
+    const pos = product.videoPosition || 'end';
+
+    if (pos === 'first') {
+      return [vidItem, ...list];
+    } else if (pos === 'after_1st' && list.length >= 1) {
+      return [list[0], vidItem, ...list.slice(1)];
+    } else if (pos === 'after_2nd' && list.length >= 2) {
+      return [list[0], list[1], vidItem, ...list.slice(2)];
+    }
+    // Default 'end': scrollable after images end!
+    return [...list, vidItem];
+  }, [rawImages, cleanProductVideo, product.videoPosition]);
+
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+
+  // Requirement 5: Studio Offer Badge stuck on image disappears after 6 seconds
+  const [showImageBadge, setShowImageBadge] = useState(true);
+  useEffect(() => {
+    setShowImageBadge(true);
+    const timer = setTimeout(() => {
+      setShowImageBadge(false);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [product?.id]);
+
+  // Mobile finger sliding / swipe gestures for product images & video
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const [touchOffset, setTouchOffset] = useState<number>(0);
   const [isSwiping, setIsSwiping] = useState(false);
 
   const handleNextMedia = () => {
-    setActiveMediaIndex((prev) => (prev + 1) % mediaList.length);
-    setIsVideoActive(false);
+    setActiveMediaIndex((prev) => (prev + 1) % combinedMediaList.length);
   };
 
   const handlePrevMedia = () => {
-    setActiveMediaIndex((prev) => (prev - 1 + mediaList.length) % mediaList.length);
-    setIsVideoActive(false);
+    setActiveMediaIndex((prev) => (prev - 1 + combinedMediaList.length) % combinedMediaList.length);
   };
 
   const onTouchStartMedia = (e: React.TouchEvent) => {
-    if (isVideoActive || mediaList.length <= 1) return;
+    if (combinedMediaList.length <= 1) return;
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     setIsSwiping(true);
@@ -86,7 +126,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   };
 
   const onTouchMoveMedia = (e: React.TouchEvent) => {
-    if (touchStartX.current === null || touchStartY.current === null || isVideoActive) return;
+    if (touchStartX.current === null || touchStartY.current === null) return;
     const diffX = e.touches[0].clientX - touchStartX.current;
     const diffY = e.touches[0].clientY - touchStartY.current;
     // Only track if horizontal swipe motion is greater than vertical scroll
@@ -96,12 +136,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   };
 
   const onTouchEndMedia = () => {
-    if (touchStartX.current !== null && !isVideoActive && mediaList.length > 1) {
+    if (touchStartX.current !== null && combinedMediaList.length > 1) {
       if (touchOffset < -35) {
-        // Swiped left with finger -> next image
+        // Swiped left with finger -> next media
         handleNextMedia();
       } else if (touchOffset > 35) {
-        // Swiped right with finger -> previous image
+        // Swiped right with finger -> previous media
         handlePrevMedia();
       }
     }
@@ -111,13 +151,45 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     setIsSwiping(false);
   };
 
-  // Video carousel state (Requirement 3: Carousel video just above Customer Reviews)
-  const videoList = product.carouselVideos && product.carouselVideos.length > 0
-    ? product.carouselVideos
-    : product.videoUrl
-    ? [{ url: product.videoUrl, title: `${product.name} 3D Print Quality & Slicing Timelapse` }]
-    : [];
-  const [activeVideoIndex, setActiveVideoIndex] = useState(0);
+  // Requirement 3: 9:16 Modern Minimalist Video Carousel (Auto-advancing on video end & finger scrollable)
+  const carouselVideos = (
+    product.carouselVideos && product.carouselVideos.length > 0
+      ? product.carouselVideos
+      : product.videoUrl
+      ? [{ id: 'vid-default', url: product.videoUrl, title: `${product.name} 3D Print Quality & Slicing Timelapse` }]
+      : []
+  ).map((v) => ({ ...v, url: formatMediaUrl(v.url) }));
+
+  const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
+  const [isCarouselMuted, setIsCarouselMuted] = useState(true);
+  const [carouselPlayingIndex, setCarouselPlayingIndex] = useState<number | null>(0);
+  const carouselScrollRef = useRef<HTMLDivElement | null>(null);
+  const carouselVideoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
+
+  const handleCarouselVideoEnded = (finishedIdx: number) => {
+    if (carouselVideos.length <= 1) return;
+    const nextIdx = (finishedIdx + 1) % carouselVideos.length;
+    setActiveCarouselIndex(nextIdx);
+    setCarouselPlayingIndex(nextIdx);
+
+    // Scroll smoothly to the next 9:16 video card
+    if (carouselScrollRef.current) {
+      const container = carouselScrollRef.current;
+      const targetCard = container.children[nextIdx] as HTMLElement;
+      if (targetCard) {
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+
+    // Automatically start playing the next video
+    setTimeout(() => {
+      const nextVid = carouselVideoRefs.current[nextIdx];
+      if (nextVid) {
+        nextVid.currentTime = 0;
+        nextVid.play().catch(() => {});
+      }
+    }, 150);
+  };
 
   // Reviews state
   const [reviewsList, setReviewsList] = useState<ProductReview[]>(
@@ -236,7 +308,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               ========================================================= */}
           <div className="lg:col-span-7 space-y-3 sm:space-y-4">
             <div className="relative rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden bg-white p-3 sm:p-6 shadow-xs border-4 border-white select-none">
-              {/* Large Main Media Frame with Finger Sliding Touch Gestures */}
+              {/* Large Main Media Frame with Finger Sliding Touch Gestures (Requirement 4) */}
               <div
                 onTouchStart={onTouchStartMedia}
                 onTouchMove={onTouchMoveMedia}
@@ -244,10 +316,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 onTouchCancel={onTouchEndMedia}
                 className="relative w-full aspect-square sm:aspect-4/3 rounded-2xl sm:rounded-3xl overflow-hidden bg-[#e8ece1]/40 touch-pan-y cursor-grab active:cursor-grabbing"
               >
-                {isVideoActive && product.videoUrl ? (
+                {combinedMediaList[activeMediaIndex]?.type === 'video' ? (
                   <div className="relative w-full h-full bg-black flex items-center justify-center">
                     <video
-                      src={product.videoUrl}
+                      key={combinedMediaList[activeMediaIndex].url}
+                      src={combinedMediaList[activeMediaIndex].url}
                       controls
                       autoPlay
                       playsInline
@@ -262,7 +335,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     }}
                   >
                     <img
-                      src={mediaList[activeMediaIndex] || product.imageUrl}
+                      src={combinedMediaList[activeMediaIndex]?.url || formatMediaUrl(product.imageUrl)}
                       alt={product.name}
                       draggable={false}
                       className="w-full h-full object-cover transition-opacity duration-300 pointer-events-none"
@@ -270,19 +343,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </div>
                 )}
 
-                {/* Badge Overlay */}
-                {(product.customOfferBadge || product.badge) && (
-                  <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-[#1e4b3e] text-[#f3b755] font-bubbly text-xs tracking-wider shadow-md pointer-events-none">
+                {/* Badge Overlay (Requirement 5: Disappears after 6 seconds) */}
+                {(product.customOfferBadge || product.badge) && showImageBadge && (
+                  <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-[#1e4b3e] text-[#f3b755] font-bubbly text-xs tracking-wider shadow-md pointer-events-none transition-all duration-700 ease-out">
                     {product.customOfferBadge || product.badge}
                   </div>
                 )}
 
                 {/* Left / Right Chevron Buttons for Finger Tapping / Sliding */}
-                {mediaList.length > 1 && !isVideoActive && (
+                {combinedMediaList.length > 1 && (
                   <>
                     <button
                       type="button"
-                      aria-label="Previous Image"
+                      aria-label="Previous Media"
                       onClick={(e) => {
                         e.stopPropagation();
                         handlePrevMedia();
@@ -293,7 +366,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     </button>
                     <button
                       type="button"
-                      aria-label="Next Image"
+                      aria-label="Next Media"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleNextMedia();
@@ -305,59 +378,51 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
                     {/* Pagination Dots & Slide Counter for Phone */}
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-xs text-white">
-                      {mediaList.map((_, i) => (
+                      {combinedMediaList.map((_, i) => (
                         <button
                           key={i}
                           type="button"
-                          onClick={() => {
-                            setActiveMediaIndex(i);
-                            setIsVideoActive(false);
-                          }}
+                          onClick={() => setActiveMediaIndex(i)}
                           className={`h-1.5 rounded-full transition-all ${
                             activeMediaIndex === i ? 'w-5 bg-[#f3b755]' : 'w-1.5 bg-white/60'
                           }`}
                         />
                       ))}
                       <span className="text-[10px] font-mono ml-1 font-bold">
-                        {activeMediaIndex + 1}/{mediaList.length}
+                        {activeMediaIndex + 1}/{combinedMediaList.length}
                       </span>
                     </div>
                   </>
                 )}
               </div>
 
-              {/* Thumbnails row */}
+              {/* Thumbnails row (Requirement 4: Images & Product Video in configured position) */}
               <div className="flex items-center gap-2.5 mt-3 overflow-x-auto pb-1 scrollbar-none touch-pan-x">
-                {mediaList.map((imgUrl, idx) => (
+                {combinedMediaList.map((item, idx) => (
                   <button
                     key={idx}
-                    onClick={() => {
-                      setActiveMediaIndex(idx);
-                      setIsVideoActive(false);
-                    }}
-                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl overflow-hidden border-2 shrink-0 transition-all ${
-                      !isVideoActive && activeMediaIndex === idx
+                    onClick={() => setActiveMediaIndex(idx)}
+                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl overflow-hidden border-2 shrink-0 transition-all relative ${
+                      activeMediaIndex === idx
                         ? 'border-[#1e4b3e] ring-2 ring-[#1e4b3e] scale-105'
                         : 'border-slate-200 opacity-70 hover:opacity-100'
                     }`}
                   >
-                    <img src={imgUrl} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover rounded-lg" />
+                    {item.type === 'video' ? (
+                      <div className="w-full h-full bg-[#1e4b3e] flex flex-col items-center justify-center text-[#f3b755]">
+                        <Play className="w-4 h-4 fill-current" />
+                        <span className="text-[8px] font-bold mt-0.5 text-white">Video</span>
+                      </div>
+                    ) : (
+                      <img src={item.url} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover rounded-lg" />
+                    )}
+                    {item.type === 'video' && (
+                      <span className="absolute bottom-1 right-1 bg-black/70 text-[#f3b755] rounded-full p-0.5">
+                        <Film className="w-2.5 h-2.5" />
+                      </span>
+                    )}
                   </button>
                 ))}
-
-                {product.videoUrl && (
-                  <button
-                    onClick={() => setIsVideoActive(true)}
-                    className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl border-2 shrink-0 flex flex-col items-center justify-center transition-all ${
-                      isVideoActive
-                        ? 'border-[#1e4b3e] bg-[#1e4b3e] text-[#f3b755] ring-2 ring-[#f3b755] scale-105'
-                        : 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Play className="w-5 h-5 fill-current" />
-                    <span className="text-[9px] font-bold mt-0.5">Video</span>
-                  </button>
-                )}
               </div>
 
               {/* Japanese Subtext */}
@@ -370,8 +435,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             </div>
 
             {/* =========================================================
-                OFFICIAL STUDIO OFFER - HIGHLIGHTS ₹10 DISCOUNT ON ONLINE PAYMENT
-                Solid, bold, crisp, high-contrast banner without opacity pulsing.
+                REQUIREMENT 5: OFFICIAL STUDIO OFFER DISPLAY BELOW PRODUCT
+                Solid, bold, crisp, high-contrast banner with dynamic admin text.
                 ========================================================= */}
             <div className="relative overflow-hidden rounded-[2rem] bg-[#f3b755] p-4 sm:p-5 shadow-sm border-2 border-white">
               <div className="flex items-center gap-3">
@@ -385,7 +450,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     </span>
                     <span className="px-3 py-1 rounded-full bg-[#1e4b3e] text-white font-black text-xs uppercase tracking-wide shadow-xs ring-2 ring-white flex items-center gap-1">
                       <span className="text-[#f3b755]">⚡</span>
-                      <span>₹10 OFF ON ONLINE PAYMENT</span>
+                      <span>
+                        {product.officialOfferText || product.customOfferBadge || '₹10 OFF ON ONLINE PAYMENT & UPI'}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -667,62 +734,148 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
             </div>
 
             {/* =========================================================
-                REQUIREMENT 3: CAROUSEL VIDEO JUST ABOVE CUSTOMER REVIEWS
+                REQUIREMENT 3: 9:16 RATIO MODERN MINIMAL CAROUSEL VIDEOS
+                Scrollable towards right side with fingers, smooth slide transition,
+                and automatic next slide & play when video ends.
                 ========================================================= */}
-            {videoList.length > 0 && (
+            {carouselVideos.length > 0 && (
               <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xs border border-slate-100 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <Film className="w-4 h-4 text-[#ea8f5a]" />
                       <h3 className="font-bubbly text-lg sm:text-xl text-[#1a2e26]">
-                        STUDIO PRINT & FINISH VIDEOS
+                        STUDIO REELS & CRAFT VIDEOS
                       </h3>
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      High-precision Bambu Lab layer adhesion and 360° tactile video.
+                      Swipe right with fingers · 9:16 vertical view · Auto-plays next when finished
                     </p>
                   </div>
-                  {videoList.length > 1 && (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setActiveVideoIndex((i) => (i === 0 ? videoList.length - 1 : i - 1))}
-                        className="w-7 h-7 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
-                        title="Previous video"
-                      >
-                        ←
-                      </button>
-                      <span className="text-[10px] font-bold text-slate-500 font-mono">
-                        {activeVideoIndex + 1}/{videoList.length}
-                      </span>
-                      <button
-                        onClick={() => setActiveVideoIndex((i) => (i === videoList.length - 1 ? 0 : i + 1))}
-                        className="w-7 h-7 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
-                        title="Next video"
-                      >
-                        →
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsCarouselMuted(!isCarouselMuted)}
+                      className="p-2 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white text-slate-700 transition-colors cursor-pointer"
+                      title={isCarouselMuted ? 'Unmute Sound' : 'Mute Sound'}
+                    >
+                      {isCarouselMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    </button>
+                    {carouselVideos.length > 1 && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prevIdx = activeCarouselIndex === 0 ? carouselVideos.length - 1 : activeCarouselIndex - 1;
+                            setActiveCarouselIndex(prevIdx);
+                            setCarouselPlayingIndex(prevIdx);
+                            carouselScrollRef.current?.children[prevIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                          }}
+                          className="w-7 h-7 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
+                          title="Previous video"
+                        >
+                          ←
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-500 font-mono">
+                          {activeCarouselIndex + 1}/{carouselVideos.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextIdx = (activeCarouselIndex + 1) % carouselVideos.length;
+                            setActiveCarouselIndex(nextIdx);
+                            setCarouselPlayingIndex(nextIdx);
+                            carouselScrollRef.current?.children[nextIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                          }}
+                          className="w-7 h-7 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
+                          title="Next video"
+                        >
+                          →
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Responsive Carousel Video Player */}
-                <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-inner">
-                  <video
-                    key={videoList[activeVideoIndex]?.url}
-                    src={videoList[activeVideoIndex]?.url}
-                    controls
-                    playsInline
-                    className="w-full h-full object-contain"
-                    poster={videoList[activeVideoIndex]?.poster || product.imageUrl}
-                  />
+                {/* Horizontal Scrollable 9:16 Minimal Modern Frame Carousel */}
+                <div
+                  ref={carouselScrollRef}
+                  className="flex items-center gap-3.5 sm:gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-3 pt-1 px-1 no-scrollbar touch-pan-x"
+                >
+                  {carouselVideos.map((vid, idx) => {
+                    const isActive = activeCarouselIndex === idx;
+                    const isCurrentlyPlaying = carouselPlayingIndex === idx;
+
+                    return (
+                      <div
+                        key={vid.id || idx}
+                        onClick={() => {
+                          setActiveCarouselIndex(idx);
+                          setCarouselPlayingIndex(idx);
+                          const el = carouselVideoRefs.current[idx];
+                          if (el) {
+                            if (el.paused) el.play().catch(() => {});
+                            else el.pause();
+                          }
+                        }}
+                        className={`relative shrink-0 snap-center w-[220px] sm:w-[260px] aspect-[9/16] rounded-[2rem] sm:rounded-[2.4rem] overflow-hidden bg-black shadow-md border-4 transition-all duration-300 cursor-pointer ${
+                          isActive
+                            ? 'border-[#1e4b3e] ring-4 ring-[#f3b755]/50 scale-[1.02]'
+                            : 'border-slate-800 opacity-80 hover:opacity-100 hover:scale-[1.01]'
+                        }`}
+                      >
+                        {/* Smartphone minimal speaker notch */}
+                        <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-20 w-12 h-1 bg-white/30 rounded-full pointer-events-none" />
+
+                        {/* Top Badge: Index indicator & Title */}
+                        <div className="absolute top-4 left-3 right-3 z-20 flex items-center justify-between text-white pointer-events-none">
+                          <span className="px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-mono font-bold text-[#f3b755]">
+                            {idx + 1}/{carouselVideos.length}
+                          </span>
+                          {isActive && (
+                            <span className="px-2 py-0.5 rounded-full bg-[#1e4b3e]/80 backdrop-blur-md text-[9px] font-bold tracking-wide uppercase text-white animate-pulse">
+                              Now Playing
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Video Element */}
+                        <video
+                          ref={(el) => {
+                            carouselVideoRefs.current[idx] = el;
+                          }}
+                          src={vid.url}
+                          playsInline
+                          muted={isCarouselMuted}
+                          autoPlay={idx === 0}
+                          onEnded={() => handleCarouselVideoEnded(idx)}
+                          className="w-full h-full object-cover"
+                          poster={vid.poster || formatMediaUrl(product.imageUrl)}
+                        />
+
+                        {/* Play/Pause Overlay indicator when tapped */}
+                        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                          {!isCurrentlyPlaying && (
+                            <div className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-md text-[#f3b755] flex items-center justify-center shadow-lg">
+                              <Play className="w-6 h-6 fill-current ml-0.5" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Bottom Title Bar & Minimal Timeline Frame */}
+                        <div className="absolute bottom-0 inset-x-0 z-20 p-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white pointer-events-none">
+                          <p className="text-xs font-bold line-clamp-2 text-slate-100">
+                            {vid.title || `${product.name} 3D Print Video ${idx + 1}`}
+                          </p>
+                          <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400 font-mono">
+                            <span>Swipe &rarr;</span>
+                            <span className="text-[#f3b755]">9:16 Minimal Frame</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                {videoList[activeVideoIndex]?.title && (
-                  <p className="text-xs font-bold text-[#1e4b3e] flex items-center gap-1.5">
-                    <Play className="w-3.5 h-3.5 fill-current shrink-0" />
-                    <span>{videoList[activeVideoIndex].title}</span>
-                  </p>
-                )}
               </div>
             )}
 

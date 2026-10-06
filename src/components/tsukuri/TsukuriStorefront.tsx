@@ -19,6 +19,7 @@ import {
   CartItem,
   formatPrice,
   UserAccount,
+  formatMediaUrl,
 } from './tsukuriData.ts';
 import { CustomCadModal } from './CustomCadModal.tsx';
 import { TsukuriCartDrawer } from './TsukuriCartDrawer.tsx';
@@ -346,7 +347,7 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
                         style={{ backgroundColor: prod.colorHex }}
                       >
                         <img
-                          src={prod.imageUrl}
+                          src={formatMediaUrl(prod.imageUrl)}
                           alt={prod.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                         />
@@ -446,7 +447,7 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
                     {/* Product Image Frame */}
                     <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-[#e8ece1]/50 mb-2 sm:mb-3">
                       <img
-                        src={prod.imageUrl}
+                        src={formatMediaUrl(prod.imageUrl)}
                         alt={prod.name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
@@ -571,7 +572,7 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
               >
                 <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl border-4 border-white transition-transform group-hover:scale-105">
                   <img
-                    src={displayProducts[3]?.imageUrl || INITIAL_TSUKURI_PRODUCTS[3].imageUrl}
+                    src={formatMediaUrl(displayProducts[3]?.imageUrl || INITIAL_TSUKURI_PRODUCTS[3].imageUrl)}
                     alt={displayProducts[3]?.name || 'Everyday Drop'}
                     className="w-full h-full object-cover"
                   />
