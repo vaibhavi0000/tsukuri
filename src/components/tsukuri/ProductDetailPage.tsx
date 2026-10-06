@@ -161,34 +161,138 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   ).map((v) => ({ ...v, url: formatMediaUrl(v.url) }));
 
   const [activeCarouselIndex, setActiveCarouselIndex] = useState(0);
-  const [isCarouselMuted, setIsCarouselMuted] = useState(true);
+  const [isCarouselMuted, setIsCarouselMuted] = useState(false);
+  const [ownVideoMuted, setOwnVideoMuted] = useState(true);
   const [carouselPlayingIndex, setCarouselPlayingIndex] = useState<number | null>(0);
   const carouselScrollRef = useRef<HTMLDivElement | null>(null);
+  const carouselSectionRef = useRef<HTMLDivElement | null>(null);
   const carouselVideoRefs = useRef<{ [key: number]: HTMLVideoElement | null }>({});
+  const ownVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  const handleCarouselVideoEnded = (finishedIdx: number) => {
-    if (carouselVideos.length <= 1) return;
-    const nextIdx = (finishedIdx + 1) % carouselVideos.length;
-    setActiveCarouselIndex(nextIdx);
-    setCarouselPlayingIndex(nextIdx);
+  // Helper to play a carousel video with audio (falls back to muted if blocked by browser policy)
+  const playReelWithAudio = (v: HTMLVideoElement) => {
+    v.muted = isCarouselMuted;
+    const playPromise = v.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {
+        // Autoplay policy: if audio blocked by browser without interaction, start muted immediately
+        v.muted = true;
+        v.play().catch(() => {});
+      });
+    }
+  };
 
-    // Scroll smoothly to the next 9:16 video card
+  // Requirement 5: Autoplay product's own video automatically whenever active in gallery
+  useEffect(() => {
+    if (combinedMediaList[activeMediaIndex]?.type === 'video') {
+      const vid = ownVideoRef.current;
+      if (vid) {
+        vid.currentTime = 0;
+        vid.muted = ownVideoMuted;
+        vid.play().catch(() => {});
+      }
+    }
+  }, [activeMediaIndex, combinedMediaList, ownVideoMuted]);
+
+  // Requirement 6: IntersectionObserver - Stop all studio reels when user scrolls above or below section; resume active reel when back in view
+  useEffect(() => {
+    const el = carouselSectionRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) {
+            // User scrolled above or below: immediately stop all reels until they return
+            Object.values(carouselVideoRefs.current).forEach((v) => {
+              if (v && !v.paused) v.pause();
+            });
+            setCarouselPlayingIndex(null);
+          } else {
+            // User returned to studio reels section: resume active reel automatically
+            setCarouselPlayingIndex(activeCarouselIndex);
+            const activeVid = carouselVideoRefs.current[activeCarouselIndex];
+            if (activeVid) {
+              playReelWithAudio(activeVid);
+            }
+          }
+        });
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [activeCarouselIndex, isCarouselMuted]);
+
+  // Smoothly switch to video: stops previous video completely and autoplays new video with sound
+  const switchCarouselVideo = (newIdx: number) => {
+    setActiveCarouselIndex(newIdx);
+    setCarouselPlayingIndex(newIdx);
+
+    // Stop all other videos in carousel immediately
+    Object.keys(carouselVideoRefs.current).forEach((k) => {
+      const idx = Number(k);
+      const v = carouselVideoRefs.current[idx];
+      if (v) {
+        if (idx === newIdx) {
+          v.currentTime = 0;
+          playReelWithAudio(v);
+        } else {
+          v.pause();
+        }
+      }
+    });
+
     if (carouselScrollRef.current) {
       const container = carouselScrollRef.current;
-      const targetCard = container.children[nextIdx] as HTMLElement;
+      const targetCard = container.children[newIdx] as HTMLElement;
       if (targetCard) {
         targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       }
     }
+  };
 
-    // Automatically start playing the next video
-    setTimeout(() => {
-      const nextVid = carouselVideoRefs.current[nextIdx];
-      if (nextVid) {
-        nextVid.currentTime = 0;
-        nextVid.play().catch(() => {});
+  // Detect which reel is centered when user swipes horizontally with finger
+  const handleCarouselScroll = () => {
+    if (!carouselScrollRef.current) return;
+    const container = carouselScrollRef.current;
+    const scrollLeft = container.scrollLeft;
+    const children = Array.from(container.children) as HTMLElement[];
+    if (children.length === 0) return;
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    const containerCenter = scrollLeft + container.clientWidth / 2;
+
+    children.forEach((child, idx) => {
+      const childCenter = child.offsetLeft + child.clientWidth / 2;
+      const diff = Math.abs(containerCenter - childCenter);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = idx;
       }
-    }, 150);
+    });
+
+    if (closestIdx !== activeCarouselIndex) {
+      setActiveCarouselIndex(closestIdx);
+      setCarouselPlayingIndex(closestIdx);
+      Object.keys(carouselVideoRefs.current).forEach((k) => {
+        const idx = Number(k);
+        const v = carouselVideoRefs.current[idx];
+        if (v) {
+          if (idx === closestIdx) {
+            playReelWithAudio(v);
+          } else {
+            v.pause();
+          }
+        }
+      });
+    }
+  };
+
+  // Auto slide & play next video when current finished
+  const handleCarouselVideoEnded = (finishedIdx: number) => {
+    if (carouselVideos.length <= 1) return;
+    const nextIdx = (finishedIdx + 1) % carouselVideos.length;
+    switchCarouselVideo(nextIdx);
   };
 
   // Reviews state
@@ -319,13 +423,45 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 {combinedMediaList[activeMediaIndex]?.type === 'video' ? (
                   <div className="relative w-full h-full bg-black flex items-center justify-center">
                     <video
+                      ref={(el) => {
+                        ownVideoRef.current = el;
+                        if (el) el.play().catch(() => {});
+                      }}
                       key={combinedMediaList[activeMediaIndex].url}
                       src={combinedMediaList[activeMediaIndex].url}
                       controls
                       autoPlay
+                      muted={ownVideoMuted}
+                      loop
                       playsInline
                       className="w-full h-full object-contain"
                     />
+                    {/* Unmute/Mute Toggle on Product Own Video */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const nextMuted = !ownVideoMuted;
+                        setOwnVideoMuted(nextMuted);
+                        if (ownVideoRef.current) {
+                          ownVideoRef.current.muted = nextMuted;
+                        }
+                      }}
+                      className="absolute top-4 right-4 z-20 px-3 py-1.5 rounded-full bg-black/70 hover:bg-black text-white text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
+                      title={ownVideoMuted ? 'Turn Sound On' : 'Mute Video'}
+                    >
+                      {ownVideoMuted ? (
+                        <>
+                          <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="text-[10px]">Unmute Video</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-[10px]">Sound On</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 ) : (
                   <div
@@ -739,7 +875,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 and automatic next slide & play when video ends.
                 ========================================================= */}
             {carouselVideos.length > 0 && (
-              <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xs border border-slate-100 space-y-4">
+              <div
+                ref={carouselSectionRef}
+                className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xs border border-slate-100 space-y-4"
+              >
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
@@ -748,18 +887,33 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                         STUDIO REELS & CRAFT VIDEOS
                       </h3>
                     </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Swipe right with fingers · 9:16 vertical view · Auto-plays next when finished
-                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsCarouselMuted(!isCarouselMuted)}
-                      className="p-2 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white text-slate-700 transition-colors cursor-pointer"
-                      title={isCarouselMuted ? 'Unmute Sound' : 'Mute Sound'}
+                      onClick={() => {
+                        const newMuted = !isCarouselMuted;
+                        setIsCarouselMuted(newMuted);
+                        // Apply mute setting to currently active video
+                        const activeVid = carouselVideoRefs.current[activeCarouselIndex];
+                        if (activeVid) {
+                          activeVid.muted = newMuted;
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white text-slate-700 transition-colors cursor-pointer text-xs font-bold flex items-center gap-1.5"
+                      title={isCarouselMuted ? 'Turn Sound On' : 'Mute Sound'}
                     >
-                      {isCarouselMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                      {isCarouselMuted ? (
+                        <>
+                          <VolumeX className="w-3.5 h-3.5" />
+                          <span className="text-[10px]">Unmute</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-[10px] text-emerald-700 font-bold">Audio On</span>
+                        </>
+                      )}
                     </button>
                     {carouselVideos.length > 1 && (
                       <div className="flex items-center gap-1.5">
@@ -767,9 +921,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           type="button"
                           onClick={() => {
                             const prevIdx = activeCarouselIndex === 0 ? carouselVideos.length - 1 : activeCarouselIndex - 1;
-                            setActiveCarouselIndex(prevIdx);
-                            setCarouselPlayingIndex(prevIdx);
-                            carouselScrollRef.current?.children[prevIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                            switchCarouselVideo(prevIdx);
                           }}
                           className="w-7 h-7 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
                           title="Previous video"
@@ -783,9 +935,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           type="button"
                           onClick={() => {
                             const nextIdx = (activeCarouselIndex + 1) % carouselVideos.length;
-                            setActiveCarouselIndex(nextIdx);
-                            setCarouselPlayingIndex(nextIdx);
-                            carouselScrollRef.current?.children[nextIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                            switchCarouselVideo(nextIdx);
                           }}
                           className="w-7 h-7 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
                           title="Next video"
@@ -797,10 +947,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </div>
                 </div>
 
-                {/* Horizontal Scrollable 9:16 Minimal Modern Frame Carousel */}
+                {/* Horizontal Scrollable 9:16 Minimal Modern Frame Carousel with touch-pan-y for fluid vertical scrolling */}
                 <div
                   ref={carouselScrollRef}
-                  className="flex items-center gap-3.5 sm:gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-3 pt-1 px-1 no-scrollbar touch-pan-x"
+                  onScroll={handleCarouselScroll}
+                  className="flex items-center gap-3.5 sm:gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-3 pt-1 px-1 no-scrollbar touch-pan-y [touch-action:pan-x_pan-y]"
                 >
                   {carouselVideos.map((vid, idx) => {
                     const isActive = activeCarouselIndex === idx;
@@ -810,15 +961,22 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                       <div
                         key={vid.id || idx}
                         onClick={() => {
-                          setActiveCarouselIndex(idx);
-                          setCarouselPlayingIndex(idx);
-                          const el = carouselVideoRefs.current[idx];
-                          if (el) {
-                            if (el.paused) el.play().catch(() => {});
-                            else el.pause();
+                          if (activeCarouselIndex !== idx) {
+                            switchCarouselVideo(idx);
+                          } else {
+                            const el = carouselVideoRefs.current[idx];
+                            if (el) {
+                              if (el.paused) {
+                                playReelWithAudio(el);
+                                setCarouselPlayingIndex(idx);
+                              } else {
+                                el.pause();
+                                setCarouselPlayingIndex(null);
+                              }
+                            }
                           }
                         }}
-                        className={`relative shrink-0 snap-center w-[220px] sm:w-[260px] aspect-[9/16] rounded-[2rem] sm:rounded-[2.4rem] overflow-hidden bg-black shadow-md border-4 transition-all duration-300 cursor-pointer ${
+                        className={`relative shrink-0 snap-center w-[220px] sm:w-[260px] aspect-[9/16] rounded-[2rem] sm:rounded-[2.4rem] overflow-hidden bg-black shadow-md border-4 transition-all duration-300 cursor-pointer touch-pan-y [touch-action:pan-x_pan-y] select-none ${
                           isActive
                             ? 'border-[#1e4b3e] ring-4 ring-[#f3b755]/50 scale-[1.02]'
                             : 'border-slate-800 opacity-80 hover:opacity-100 hover:scale-[1.01]'
@@ -833,13 +991,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                             {idx + 1}/{carouselVideos.length}
                           </span>
                           {isActive && (
-                            <span className="px-2 py-0.5 rounded-full bg-[#1e4b3e]/80 backdrop-blur-md text-[9px] font-bold tracking-wide uppercase text-white animate-pulse">
-                              Now Playing
+                            <span className="px-2 py-0.5 rounded-full bg-[#1e4b3e]/90 backdrop-blur-md text-[9px] font-bold tracking-wide uppercase text-white animate-pulse flex items-center gap-1">
+                              {!isCarouselMuted ? <Volume2 className="w-2.5 h-2.5 text-[#f3b755]" /> : null}
+                              <span>Now Playing</span>
                             </span>
                           )}
                         </div>
 
-                        {/* Video Element */}
+                        {/* Video Element - pointer-events-none ensures fingers pass vertical scrolling to page */}
                         <video
                           ref={(el) => {
                             carouselVideoRefs.current[idx] = el;
@@ -849,7 +1008,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           muted={isCarouselMuted}
                           autoPlay={idx === 0}
                           onEnded={() => handleCarouselVideoEnded(idx)}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover pointer-events-none"
                           poster={vid.poster || formatMediaUrl(product.imageUrl)}
                         />
 
@@ -862,15 +1021,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                           )}
                         </div>
 
-                        {/* Bottom Title Bar & Minimal Timeline Frame */}
+                        {/* Bottom Title Bar & Minimal Timeline Frame without distracting swipe text */}
                         <div className="absolute bottom-0 inset-x-0 z-20 p-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent text-white pointer-events-none">
                           <p className="text-xs font-bold line-clamp-2 text-slate-100">
                             {vid.title || `${product.name} 3D Print Video ${idx + 1}`}
                           </p>
-                          <div className="flex items-center justify-between mt-1 text-[9px] text-slate-400 font-mono">
-                            <span>Swipe &rarr;</span>
-                            <span className="text-[#f3b755]">9:16 Minimal Frame</span>
-                          </div>
                         </div>
                       </div>
                     );

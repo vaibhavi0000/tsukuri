@@ -34,76 +34,84 @@ const INITIAL_AUDIT_LOGS: AuditLogItem[] = [
     id: 'aud-101',
     timestamp: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
     admin: 'Aditya',
-    passcodeVerified: '3078',
+    passcodeVerified: 'Verified',
     action: 'Co-Founder Security Authentication',
     category: 'auth',
-    details: 'Aditya successfully entered pass code 3078. Authenticated with full Co-Founder master rights.',
+    details: 'Aditya authenticated successfully with full Co-Founder master rights.',
     status: 'Verified',
-    sessionClient: 'Console Session · 3078 Verified',
+    sessionClient: 'Console Session · Clearance Verified',
   },
   {
     id: 'aud-102',
     timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
     admin: 'Anshuman',
-    passcodeVerified: '7985',
+    passcodeVerified: 'Verified',
     action: 'Product Catalog & Media Upload',
     category: 'product',
     details: 'Anshuman uploaded product photos and configured video carousel for product LL (#57005).',
     status: 'Success',
-    sessionClient: 'Console Session · 7985 Verified',
+    sessionClient: 'Console Session · Clearance Verified',
   },
   {
     id: 'aud-103',
     timestamp: new Date(Date.now() - 1000 * 60 * 32).toISOString(),
     admin: 'Aditya',
-    passcodeVerified: '3078',
+    passcodeVerified: 'Verified',
     action: 'Automatic Combo Pricing Update',
     category: 'pricing',
     details: 'Aditya generated automatic quantity tier pricing for 1x, 2x, 3x, 4x packs from base selling price ₹599.',
     status: 'Success',
-    sessionClient: 'Console Session · 3078 Verified',
+    sessionClient: 'Console Session · Clearance Verified',
   },
   {
     id: 'aud-104',
     timestamp: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
     admin: 'Anshuman',
-    passcodeVerified: '7985',
+    passcodeVerified: 'Verified',
     action: 'Official Studio Offer Configured',
     category: 'offer',
     details: 'Anshuman updated official studio offer below product: "SPECIAL STUDIO DEAL: 20% OFF ON UPI".',
     status: 'Success',
-    sessionClient: 'Console Session · 7985 Verified',
+    sessionClient: 'Console Session · Clearance Verified',
   },
   {
     id: 'aud-105',
     timestamp: new Date(Date.now() - 1000 * 60 * 80).toISOString(),
     admin: 'Aditya',
-    passcodeVerified: '3078',
+    passcodeVerified: 'Verified',
     action: 'Product Video Position Assigned',
     category: 'product',
     details: 'Aditya set product own video to scrollable position "After images end" in main media gallery.',
     status: 'Success',
-    sessionClient: 'Console Session · 3078 Verified',
+    sessionClient: 'Console Session · Clearance Verified',
   },
   {
     id: 'aud-106',
     timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
     admin: 'Anshuman',
-    passcodeVerified: '7985',
+    passcodeVerified: 'Verified',
     action: 'Co-Founder Security Authentication',
     category: 'auth',
-    details: 'Anshuman successfully entered pass code 7985. Authenticated with full Co-Founder master rights.',
+    details: 'Anshuman authenticated successfully with full Co-Founder master rights.',
     status: 'Verified',
-    sessionClient: 'Console Session · 7985 Verified',
+    sessionClient: 'Console Session · Clearance Verified',
   },
 ];
 
 interface AuditLogsTabProps {
   currentAdminUser: string;
+  logs?: AuditLogItem[];
+  onAddLog?: (entry: Omit<AuditLogItem, 'id' | 'timestamp'>) => void;
+  onClearLogs?: () => void;
 }
 
-export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) => {
-  const [logs, setLogs] = useState<AuditLogItem[]>(() => {
+export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({
+  currentAdminUser,
+  logs: propLogs,
+  onAddLog,
+  onClearLogs,
+}) => {
+  const [localLogs, setLocalLogs] = useState<AuditLogItem[]>(() => {
     try {
       const stored = localStorage.getItem('tsukuri_audit_logs');
       if (stored) {
@@ -114,18 +122,33 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
     return INITIAL_AUDIT_LOGS;
   });
 
+  // Effective logs: prefer prop if provided, else localLogs
+  const activeLogs = propLogs && propLogs.length > 0 ? propLogs : localLogs;
+
   const [filterAdmin, setFilterAdmin] = useState<'All' | 'Aditya' | 'Anshuman'>('All');
   const [filterCategory, setFilterCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [manualAction, setManualAction] = useState('');
+  const [manualDetails, setManualDetails] = useState('');
+  const [manualCategory, setManualCategory] = useState<'security' | 'product' | 'pricing' | 'offer' | 'order'>('security');
 
-  // Persist logs whenever they change
+  // Listen to custom audit events across the applet
   useEffect(() => {
-    try {
-      localStorage.setItem('tsukuri_audit_logs', JSON.stringify(logs));
-    } catch {}
-  }, [logs]);
+    const handleUpdate = () => {
+      try {
+        const stored = localStorage.getItem('tsukuri_audit_logs');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) setLocalLogs(parsed);
+        }
+      } catch {}
+    };
+    window.addEventListener('tsukuri_audit_updated', handleUpdate);
+    return () => window.removeEventListener('tsukuri_audit_updated', handleUpdate);
+  }, []);
 
-  const filteredLogs = logs.filter((log) => {
+  const filteredLogs = activeLogs.filter((log) => {
     const matchesAdmin = filterAdmin === 'All' || log.admin === filterAdmin;
     const matchesCategory = filterCategory === 'All' || log.category === filterCategory;
     const q = searchQuery.toLowerCase().trim();
@@ -134,15 +157,15 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
       log.action.toLowerCase().includes(q) ||
       log.details.toLowerCase().includes(q) ||
       log.admin.toLowerCase().includes(q) ||
-      log.passcodeVerified.includes(q);
+      log.status.toLowerCase().includes(q);
     return matchesAdmin && matchesCategory && matchesSearch;
   });
 
-  const adityaLogsCount = logs.filter((l) => l.admin === 'Aditya').length;
-  const anshumanLogsCount = logs.filter((l) => l.admin === 'Anshuman').length;
+  const adityaLogsCount = activeLogs.filter((l) => l.admin === 'Aditya').length;
+  const anshumanLogsCount = activeLogs.filter((l) => l.admin === 'Anshuman').length;
 
   const handleExportCSV = () => {
-    const headers = ['Timestamp', 'Co-Founder', 'Passcode Verified', 'Action', 'Category', 'Status', 'Details'];
+    const headers = ['Timestamp', 'Co-Founder', 'Clearance Verified', 'Action', 'Category', 'Status', 'Details'];
     const rows = filteredLogs.map((l) => [
       `"${new Date(l.timestamp).toLocaleString('en-IN')}"`,
       `"${l.admin}"`,
@@ -166,9 +189,42 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
     try {
       const stored = localStorage.getItem('tsukuri_audit_logs');
       if (stored) {
-        setLogs(JSON.parse(stored));
+        setLocalLogs(JSON.parse(stored));
       }
     } catch {}
+  };
+
+  const handleCreateManualLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualAction.trim()) return;
+    const entry = {
+      admin: (currentAdminUser === 'Anshuman' ? 'Anshuman' : 'Aditya') as 'Aditya' | 'Anshuman',
+      passcodeVerified: 'Verified',
+      action: manualAction.trim(),
+      category: manualCategory,
+      details: manualDetails.trim() || `${currentAdminUser} logged security inspection note.`,
+      status: 'Verified' as const,
+      sessionClient: 'Manual Audit Entry · Co-Founder Clearance',
+    };
+    if (onAddLog) {
+      onAddLog(entry);
+    } else {
+      const newLog: AuditLogItem = {
+        ...entry,
+        id: `aud-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        timestamp: new Date().toISOString(),
+      };
+      setLocalLogs((prev) => {
+        const updated = [newLog, ...prev];
+        try {
+          localStorage.setItem('tsukuri_audit_logs', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+    setManualAction('');
+    setManualDetails('');
+    setIsManualModalOpen(false);
   };
 
   const getCategoryIcon = (cat: string) => {
@@ -202,11 +258,19 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Tamper-evident audit ledger verifying every action by <strong>Aditya</strong> (Pass Code: 3078) and <strong>Anshuman</strong> (Pass Code: 7985).
+            Tamper-evident audit ledger verifying every action by <strong>Aditya</strong> and <strong>Anshuman</strong>.
           </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsManualModalOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-[#1e4b3e] text-[#f3b755] hover:bg-[#15342b] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>+ Log Audit Note</span>
+          </button>
           <button
             type="button"
             onClick={handleExportCSV}
@@ -234,7 +298,7 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
             Total Audited Events
           </span>
           <span className="font-bubbly text-2xl text-[#1e4b3e] mt-1 block">
-            {logs.length}
+            {activeLogs.length}
           </span>
           <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
             Real-time ledger active
@@ -248,14 +312,14 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
               Aditya Operations
             </span>
             <span className="text-[9px] font-mono font-bold text-amber-800 bg-amber-200/60 px-1.5 py-0.2 rounded">
-              PIN: 3078
+              Verified
             </span>
           </div>
           <span className="font-bubbly text-2xl text-amber-900 mt-1 block">
             {adityaLogsCount}
           </span>
           <span className="text-[10px] text-amber-700 font-medium mt-0.5 block">
-            Pass Code 3078 verified
+            Co-Founder clearance active
           </span>
         </div>
 
@@ -266,14 +330,14 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
               Anshuman Operations
             </span>
             <span className="text-[9px] font-mono font-bold text-emerald-800 bg-emerald-200/60 px-1.5 py-0.2 rounded">
-              PIN: 7985
+              Verified
             </span>
           </div>
           <span className="font-bubbly text-2xl text-emerald-900 mt-1 block">
             {anshumanLogsCount}
           </span>
           <span className="text-[10px] text-emerald-700 font-medium mt-0.5 block">
-            Pass Code 7985 verified
+            Co-Founder clearance active
           </span>
         </div>
 
@@ -306,7 +370,7 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
                   filterAdmin === adm ? 'bg-[#1e4b3e] text-[#f3b755]' : 'text-slate-600 hover:text-black'
                 }`}
               >
-                {adm === 'All' ? 'All Co-Founders' : `${adm} (${adm === 'Aditya' ? '3078' : '7985'})`}
+                {adm === 'All' ? 'All Co-Founders' : adm}
               </button>
             ))}
           </div>
@@ -318,8 +382,8 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
             className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-700"
           >
             <option value="All">All Categories</option>
-            <option value="auth">Passcode Authentication</option>
-            <option value="product">Product & Media</option>
+            <option value="auth">Security Clearance</option>
+            <option value="product">Product & Catalog</option>
             <option value="pricing">Combo Tier Pricing</option>
             <option value="offer">Studio Offer Edits</option>
             <option value="order">Order Processing</option>
@@ -332,7 +396,7 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search action, details, pass code..."
+            placeholder="Search action, details, operator..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="bg-white border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs font-medium w-full sm:w-64"
@@ -346,7 +410,7 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
           <thead>
             <tr className="bg-[#e8ece1]/70 text-[#1a2e26] border-b border-slate-200">
               <th className="p-3.5 font-bubbly uppercase tracking-wider text-[11px]">Timestamp (IST)</th>
-              <th className="p-3.5 font-bubbly uppercase tracking-wider text-[11px]">Operator & Pass Code</th>
+              <th className="p-3.5 font-bubbly uppercase tracking-wider text-[11px]">Operator & Clearance</th>
               <th className="p-3.5 font-bubbly uppercase tracking-wider text-[11px]">Action Event</th>
               <th className="p-3.5 font-bubbly uppercase tracking-wider text-[11px]">Audit Details</th>
               <th className="p-3.5 font-bubbly uppercase tracking-wider text-[11px]">Status</th>
@@ -374,7 +438,7 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
                       </div>
                     </td>
 
-                    {/* Operator & Passcode */}
+                    {/* Operator & Clearance */}
                     <td className="p-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <span
@@ -389,8 +453,8 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
                           <User className="w-3 h-3" />
                           <span>{log.admin}</span>
                         </span>
-                        <span className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                          Pass Code: {log.passcodeVerified}
+                        <span className="font-mono text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                          Clearance: {log.passcodeVerified}
                         </span>
                       </div>
                     </td>
@@ -429,6 +493,103 @@ export const AuditLogsTab: React.FC<AuditLogsTabProps> = ({ currentAdminUser }) 
           </tbody>
         </table>
       </div>
+
+      {/* Manual Security Audit Note Modal */}
+      {isManualModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-2 border-[#1e4b3e]/20 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#1e4b3e]" />
+                <h3 className="font-bubbly text-lg text-[#1a2e26]">LOG AUDIT INSPECTION</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateManualLog} className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-bold text-[#1a2e26] block mb-1">
+                  Co-Founder Logging
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={`${currentAdminUser} (Authorized Co-Founder)`}
+                  className="w-full bg-slate-100 border border-slate-200 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-700 cursor-not-allowed"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#1a2e26] block mb-1">
+                  Category
+                </label>
+                <select
+                  value={manualCategory}
+                  onChange={(e: any) => setManualCategory(e.target.value)}
+                  className="w-full bg-[#e8ece1]/40 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-[#1a2e26]"
+                >
+                  <option value="security">Security & Access Inspection</option>
+                  <option value="product">Product & Catalog Review</option>
+                  <option value="pricing">Combo Tier & Discount Audit</option>
+                  <option value="offer">Studio Offer & Promotion Review</option>
+                  <option value="order">Order Verification & Fulfillment</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#1a2e26] block mb-1">
+                  Action Event Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Workshop Firmware & Security Verification"
+                  value={manualAction}
+                  onChange={(e) => setManualAction(e.target.value)}
+                  className="w-full bg-[#e8ece1]/40 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-[#1a2e26]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#1a2e26] block mb-1">
+                  Audit Details & Verification Notes *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Describe the verified actions, changes, or security checks conducted..."
+                  value={manualDetails}
+                  onChange={(e) => setManualDetails(e.target.value)}
+                  className="w-full bg-[#e8ece1]/40 border border-slate-200 rounded-xl p-2.5 text-xs text-[#1a2e26]"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsManualModalOpen(false)}
+                  className="py-2.5 px-4 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-full bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] font-bubbly text-xs tracking-wider shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>RECORD TO TAMPER-EVIDENT LEDGER</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

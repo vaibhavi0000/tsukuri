@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   ShoppingBag,
@@ -143,6 +143,21 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
   const totalCartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
 
   const displayProducts = productsList.length > 0 ? productsList : INITIAL_TSUKURI_PRODUCTS;
+
+  // Dynamic categories including custom categories created by Admin Panel
+  const allAvailableCategories = useMemo(() => {
+    let custom: string[] = [];
+    try {
+      const stored = localStorage.getItem('tsukuri_custom_categories');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) custom = parsed.filter(Boolean);
+      }
+    } catch {}
+    const fromProducts = displayProducts.map((p) => p.category).filter(Boolean);
+    const combined = Array.from(new Set([...fromProducts, ...custom]));
+    return ['All', ...combined];
+  }, [displayProducts]);
 
   const filteredProducts =
     selectedCategory === 'All'
@@ -413,16 +428,16 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
               </p>
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1 bg-white p-1 rounded-full border border-slate-200 shadow-2xs overflow-x-auto max-w-full">
-              {['All', ...Array.from(new Set(displayProducts.map((p) => p.category).filter(Boolean)))].map((cat) => (
+            {/* Filter Tabs / Slidebar with smooth finger touch scrolling */}
+            <div className="flex items-center gap-1.5 bg-white p-1 sm:p-1.5 rounded-full border border-slate-200 shadow-2xs overflow-x-auto max-w-full no-scrollbar touch-pan-x [touch-action:pan-x_pan-y]">
+              {allAvailableCategories.map((cat: string) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                  className={`px-3 py-1 sm:px-4 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
                     selectedCategory === cat
-                      ? 'bg-[#1e4b3e] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-[#1e4b3e] text-white shadow-xs ring-1 ring-[#1e4b3e]'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   }`}
                 >
                   {cat}

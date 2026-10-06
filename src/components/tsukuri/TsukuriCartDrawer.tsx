@@ -594,9 +594,10 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-[#1a2e26]">Phone (for Tracking) *</label>
+                    <label className="text-[11px] font-bold text-[#1a2e26]">Mobile Number (Customer Data) *</label>
                     <input
                       type="tel"
+                      inputMode="tel"
                       required
                       placeholder="e.g. 9876543210"
                       value={phone}
