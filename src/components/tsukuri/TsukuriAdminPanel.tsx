@@ -881,17 +881,40 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   };
 
   // Requirement 16: Device Video Upload (No URL required)
-  const handleDeviceVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDeviceVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 8 * 1024 * 1024) {
-        setProductActionToast('Notice: Large video file. For best mobile speed, YouTube or MP4 URLs are recommended.');
+      if (file.size > 25 * 1024 * 1024) {
+        setProductActionToast('Notice: Video too large (>25MB). Please enter a YouTube or MP4 link.');
         setTimeout(() => setProductActionToast(''), 4500);
+        return;
       }
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         if (ev.target?.result) {
-          setProdFormVideoUrl(ev.target.result as string);
+          const dataUrl = ev.target.result as string;
+          try {
+            const res = await fetch('/api/upload-media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dataUrl, filename: file.name }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.url) {
+                setProdFormVideoUrl(data.url);
+                setProductActionToast(`Hero video "${file.name}" uploaded successfully.`);
+                setTimeout(() => setProductActionToast(''), 3000);
+                return;
+              }
+            }
+          } catch {}
+          if (file.size <= 400 * 1024) {
+            setProdFormVideoUrl(dataUrl);
+          } else {
+            setProductActionToast('For Vercel hosting, enter a YouTube or hosted MP4 URL.');
+            setTimeout(() => setProductActionToast(''), 5000);
+          }
         }
       };
       reader.readAsDataURL(file);
@@ -899,18 +922,45 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   };
 
   // Requirement 3 & 16: Device Carousel Video Upload (No URL required)
-  const handleDeviceCarouselVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDeviceCarouselVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         if (ev.target?.result) {
-          const newVid: CarouselVideoItem = {
-            id: `vid-${Date.now()}`,
-            title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-            url: ev.target.result as string,
-          };
-          setProdFormCarouselVideos((prev) => [...prev, newVid]);
+          const dataUrl = ev.target.result as string;
+          let finalUrl = '';
+          try {
+            const res = await fetch('/api/upload-media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dataUrl, filename: file.name }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.url) {
+                finalUrl = data.url;
+              }
+            }
+          } catch {}
+
+          if (!finalUrl && file.size <= 400 * 1024) {
+            finalUrl = dataUrl;
+          }
+
+          if (finalUrl) {
+            const newVid: CarouselVideoItem = {
+              id: `vid-${Date.now()}`,
+              title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+              url: finalUrl,
+            };
+            setProdFormCarouselVideos((prev) => [...prev, newVid]);
+            setProductActionToast(`Carousel video "${file.name}" linked.`);
+            setTimeout(() => setProductActionToast(''), 3000);
+          } else {
+            setProductActionToast('For Vercel hosting, enter a video link (YouTube or MP4 URL).');
+            setTimeout(() => setProductActionToast(''), 5000);
+          }
         }
       };
       reader.readAsDataURL(file);

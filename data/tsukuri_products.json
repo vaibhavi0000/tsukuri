@@ -1,129 +1,84 @@
 [
   {
-    "id": 1,
-    "name": "Zen Wave Planter",
-    "japaneseName": "波・植木鉢 (Nami Hachi)",
-    "sku": "TSU-PLN-01",
+    "id": 57005,
+    "name": "LL",
+    "sku": "TSU-GEN-34",
+    "japaneseName": "LL (造り)",
     "category": "Home & Zen",
     "priceINR": 599,
-    "originalMRPINR": 799,
-    "discountPercent": 25,
-    "rating": 4.9,
-    "reviewsCount": 128,
-    "description": "Organic ribbed architecture sculpted with golden ratio parametric waves. Features hidden self-watering capillary reservoir and Japanese drainage grid.",
-    "tagline": "Organic ribbed planter with self-watering reservoir",
-    "material": "Bio-Matte Matcha PLA",
-    "filamentType": "Matte Matcha PLA",
-    "printTimeHours": 4.5,
-    "weightGrams": 165,
-    "imageUrl": "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=700&auto=format&fit=crop&q=80",
-    "images": [
-      "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=700&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=700&auto=format&fit=crop&q=80",
-      "https://images.unsplash.com/photo-1512428813834-c702c7702b78?w=700&auto=format&fit=crop&q=80"
-    ],
-    "videoUrl": "https://assets.mixkit.co/videos/preview/mixkit-modern-minimalist-living-room-with-plants-41617-large.mp4",
-    "carouselVideos": [
-      {
-        "id": "vid-1",
-        "title": "Parametric Water Flow Test & Slicing Quality",
-        "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-minimalist-living-room-with-plants-41617-large.mp4"
-      },
-      {
-        "id": "vid-2",
-        "title": "360° Studio Craft Presentation & Matte Finish",
-        "url": "https://assets.mixkit.co/videos/preview/mixkit-curved-white-ceramic-decorations-on-a-table-41618-large.mp4"
-      }
-    ],
-    "badge": "25% OFF",
-    "customOfferBadge": "LIMITED DROP COMBO: BUY 2 GET ₹99 OFF",
-    "inStock": true,
-    "stockCount": 24,
-    "dimensions": "140 × 140 × 120 mm",
-    "colorHex": "#607d64",
-    "colorVariants": [
-      {
-        "name": "Kyoto Matcha Green",
-        "colorHex": "#607d64",
-        "priceAdjustment": 0,
-        "inStock": true
-      },
-      {
-        "name": "Earthy Terracotta",
-        "colorHex": "#ea8f5a",
-        "priceAdjustment": 0,
-        "inStock": true
-      },
-      {
-        "name": "Obsidian Matte Black",
-        "colorHex": "#222222",
-        "priceAdjustment": 50,
-        "inStock": true
-      },
-      {
-        "name": "Wabi-Sabi Sandstone",
-        "colorHex": "#d8cbb8",
-        "priceAdjustment": 0,
-        "inStock": true
-      }
-    ],
+    "originalMRPINR": 999,
+    "discountPercent": 35,
+    "customOfferBadge": "SPECIAL STUDIO DEAL: 20% OFF ON UPI",
+    "colorVariants": [],
     "comboOffers": [
       {
         "quantity": 1,
-        "label": "Single Piece",
+        "label": "Single Piece (1x)",
         "priceINR": 599,
         "popular": false
       },
       {
         "quantity": 2,
-        "label": "Duo Combo (Pair for Desk & Shelf)",
+        "label": "Duo Combo Pack (2x)",
         "priceINR": 1099,
         "savePercent": 12,
         "popular": true
       },
       {
         "quantity": 3,
-        "label": "Studio Trio Pack (3 Colors)",
+        "label": "Studio Trio Pack (3x)",
         "priceINR": 1499,
         "savePercent": 20,
         "popular": false
       }
     ],
-    "features": [
-      "Hidden internal water chamber prevents root rot",
-      "Matte matcha green finish with subtle layer ribbing",
-      "100% biodegradable cornstarch-based bio-PLA",
-      "Precision printed on Bambu Lab X1-Carbon"
-    ],
-    "reviews": [
+    "carouselVideos": [
       {
-        "id": "rev-1",
-        "author": "Arjun K.",
-        "location": "Bengaluru, KA",
-        "rating": 5,
-        "date": "2 days ago",
-        "comment": "The self-watering capillary design works like magic for my desk succulent. The matte matcha texture feels super premium.",
-        "verified": true
+        "id": "vid-demo-1",
+        "title": "3D Print Timelapse & Slicing Quality",
+        "url": "https://assets.mixkit.co/videos/preview/mixkit-modern-minimalist-living-room-with-plants-41617-large.mp4"
       },
       {
-        "id": "rev-2",
-        "author": "Ren Tanaka",
-        "location": "Higashiyama, Kyoto",
-        "rating": 5,
-        "date": "1 week ago",
-        "comment": "Beautiful parametric curves. Exactly matches the modern Japanese wabi-sabi vibe on my monitor riser.",
-        "verified": true
+        "id": "vid-1791273885128",
+        "title": "3b450a52fd08c3af349c087657cf59ba",
+        "url": "/api/uploads/ll_carousel_vid_1_57005.mp4"
       },
       {
-        "id": "rev-3",
-        "author": "Sneha Roy",
-        "location": "Mumbai, MH",
-        "rating": 4.8,
-        "date": "2 weeks ago",
-        "comment": "Fast delivery! Got ₹10 off on UPI payment. Packed securely in an eco origami box with zero plastic.",
-        "verified": true
+        "id": "vid-1791273904518",
+        "title": "b53e37260a6589de10ec774eef93d951 (1)",
+        "url": "/api/uploads/ll_carousel_vid_2_57005.mp4"
+      },
+      {
+        "id": "vid-1791273951214",
+        "title": "4f7975004a9d9b7022a23a7aed55bfed",
+        "url": "/api/uploads/ll_carousel_vid_3_57005.mp4"
       }
-    ]
+    ],
+    "deliveryPartner": "BlueDart Surface Express",
+    "deliveryCharges": 49,
+    "deliveryEta": "3 to 4 Days Pan-India",
+    "rating": 5,
+    "reviewsCount": 1,
+    "description": "Parametric golden ratio ribbed architecture with self-watering chamber. The chamber GOD.",
+    "tagline": "Parametric golden ratio ribbed architecture w",
+    "material": "Bio-Matte Matcha PLA",
+    "filamentType": "Matte Matcha PLA",
+    "weightGrams": 165,
+    "printTimeHours": 4.5,
+    "dimensions": "140 × 140 × 120 mm",
+    "imageUrl": "/api/uploads/messho_5_png_1791273714584_2337.png",
+    "images": [
+      "/api/uploads/messho_5_png_1791273714584_2337.png",
+      "/api/uploads/mesho_6_png_1791273715184_93.png",
+      "/api/uploads/mesho_4_png_1791273715828_7926.png",
+      "/api/uploads/mesho_3_png_1791273716653_2808.png",
+      "/api/uploads/mesho_2_png_1791273717397_4048.png"
+    ],
+    "videoUrl": "/api/uploads/ll_hero_timelapse_57005.mp4",
+    "inStock": true,
+    "stockCount": 24,
+    "colorHex": "#607d64",
+    "badge": "35% OFF"
   },
   {
     "id": 2,

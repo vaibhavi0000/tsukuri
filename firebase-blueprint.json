@@ -45,6 +45,35 @@
         }
       },
       "required": ["orderNumber", "customerName", "totalAmount", "status"]
+    },
+    "tsukuri_products": {
+      "title": "TsuKURI Studio Products",
+      "description": "3D printed catalog items and drops for TsuKURI storefront",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "priceINR": {
+          "type": "number"
+        },
+        "category": {
+          "type": "string"
+        },
+        "imageUrl": {
+          "type": "string"
+        },
+        "inStock": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "name", "sku", "priceINR", "category", "imageUrl"]
     }
   },
   "firestore": {
@@ -56,6 +85,10 @@
       "orders": {
         "schema": "orders",
         "description": "Live production orders from storefront"
+      },
+      "tsukuri_products": {
+        "schema": "tsukuri_products",
+        "description": "Live catalog products and drops"
       }
     }
   }

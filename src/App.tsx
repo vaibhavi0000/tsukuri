@@ -9,6 +9,12 @@ import {
   INITIAL_TSUKURI_PRODUCTS,
   CartItem,
 } from './components/tsukuri/tsukuriData.ts';
+import {
+  saveProductToFirestore,
+  deleteProductFromFirestore,
+  subscribeToProducts,
+  seedProductsIfEmpty,
+} from './lib/firebase.ts';
 
 export const App: React.FC = () => {
   // Products List State (Managed by Admin CRUD & Cloud Server Sync)
@@ -37,40 +43,32 @@ export const App: React.FC = () => {
     } catch {}
   }, [productsList]);
 
-  // Load products from server & sync across preview & personal mobile website in real time
+  // Real-time Cloud Sync with Firebase Firestore (Works on Vercel, mobile & desktop) + Local Express Fallback
   useEffect(() => {
     let isMounted = true;
 
-    const loadProducts = async () => {
-      try {
-        const res = await fetch('/api/tsukuri-products');
-        if (res.ok) {
-          const serverProducts = await res.json();
-          if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
-            setProductsList(serverProducts);
-            try {
-              localStorage.setItem('tsukuri_products', JSON.stringify(serverProducts));
-            } catch {}
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load products from server, using local cache:', err);
+    // 1. Seed initial products if Firestore is empty so Vercel gets all drops immediately
+    seedProductsIfEmpty(INITIAL_TSUKURI_PRODUCTS).catch(() => {});
+
+    // 2. Real-time Firestore sync (Works across devices, on Vercel, without needing a backend server)
+    const unsubscribeFirestore = subscribeToProducts((firestoreProducts) => {
+      if (isMounted && Array.isArray(firestoreProducts) && firestoreProducts.length > 0) {
+        setProductsList(firestoreProducts);
+        try {
+          localStorage.setItem('tsukuri_products', JSON.stringify(firestoreProducts));
+        } catch {}
       }
-    };
+    });
 
-    loadProducts();
-
-    // Periodic sync so mobile website receives changes immediately when published from admin panel
-    const syncTimer = setInterval(async () => {
+    // 3. Fallback to local server API if running in full-stack dev environment
+    const loadFromLocalApi = async () => {
       try {
         const res = await fetch('/api/tsukuri-products');
         if (res.ok) {
           const serverProducts = await res.json();
           if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
             setProductsList((prev) => {
-              const prevIds = prev.map((p) => p.id).join(',');
-              const serverIds = serverProducts.map((p: any) => p.id).join(',');
-              if (prevIds !== serverIds || JSON.stringify(prev) !== JSON.stringify(serverProducts)) {
+              if (prev.length === 0) {
                 try {
                   localStorage.setItem('tsukuri_products', JSON.stringify(serverProducts));
                 } catch {}
@@ -81,21 +79,13 @@ export const App: React.FC = () => {
           }
         }
       } catch {}
-    }, 3500);
-
-    const onFocusOrVisible = () => {
-      if (document.visibilityState === 'visible') {
-        loadProducts();
-      }
     };
-    window.addEventListener('focus', onFocusOrVisible);
-    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    loadFromLocalApi();
 
     return () => {
       isMounted = false;
-      clearInterval(syncTimer);
-      window.removeEventListener('focus', onFocusOrVisible);
-      document.removeEventListener('visibilitychange', onFocusOrVisible);
+      if (unsubscribeFirestore) unsubscribeFirestore();
     };
   }, []);
 
@@ -183,7 +173,7 @@ export const App: React.FC = () => {
     setIsDirectBuyOpen(true);
   };
 
-  // Admin CRUD handlers (Persisted to Cloud Server & Synced to Mobile)
+  // Admin CRUD handlers (Persisted to Cloud Firestore & Synced to Mobile/Vercel)
   const handleAddProduct = async (newProd: TsukuriProduct) => {
     setProductsList((prev) => {
       const updated = [newProd, ...prev.filter((p) => p.id !== newProd.id)];
@@ -192,42 +182,51 @@ export const App: React.FC = () => {
       } catch {}
       return updated;
     });
+
+    // Save to Firestore (Real-time cloud database, works on Vercel & mobile!)
+    await saveProductToFirestore(newProd);
+
+    // Also notify local backend if running in fullstack Express
     try {
-      const res = await fetch('/api/tsukuri-products', {
+      await fetch('/api/tsukuri-products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newProd),
       });
-      if (res.ok) {
-        const saved = await res.json();
-        if (saved && saved.id) {
-          setProductsList((prev) =>
-            prev.map((p) => (p.sku === newProd.sku || p.id === newProd.id ? { ...p, ...saved } : p))
-          );
-        }
-      }
-    } catch (err) {
-      console.error('Failed to save product to server:', err);
-    }
+    } catch {}
   };
 
   const handleUpdateProduct = async (id: number, updatedFields: Partial<TsukuriProduct>) => {
+    let mergedProd: TsukuriProduct | undefined;
     setProductsList((prev) => {
-      const updated = prev.map((p) => (p.id === id ? { ...p, ...updatedFields } : p));
+      const updated = prev.map((p) => {
+        if (p.id === id) {
+          mergedProd = { ...p, ...updatedFields };
+          return mergedProd;
+        }
+        return p;
+      });
       try {
         localStorage.setItem('tsukuri_products', JSON.stringify(updated));
       } catch {}
       return updated;
     });
+
+    // Save to Firestore (Real-time cloud database, works on Vercel & mobile!)
+    if (mergedProd) {
+      await saveProductToFirestore(mergedProd);
+    } else {
+      await saveProductToFirestore({ id, ...updatedFields });
+    }
+
+    // Also notify local backend if running in fullstack Express
     try {
       await fetch(`/api/tsukuri-products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedFields),
       });
-    } catch (err) {
-      console.error('Failed to update product on server:', err);
-    }
+    } catch {}
   };
 
   const handleDeleteProduct = async (id: number) => {
@@ -239,11 +238,14 @@ export const App: React.FC = () => {
       } catch {}
       return updated;
     });
+
+    // Delete from Firestore (Real-time cloud database, works on Vercel & mobile!)
+    await deleteProductFromFirestore(id);
+
+    // Also notify local backend if running in fullstack Express
     try {
       await fetch(`/api/tsukuri-products/${id}`, { method: 'DELETE' });
-    } catch (err) {
-      console.error('Failed to delete product on server:', err);
-    }
+    } catch {}
   };
 
   return (
