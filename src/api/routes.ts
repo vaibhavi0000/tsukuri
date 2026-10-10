@@ -23,7 +23,7 @@ import {
   businessSettings,
   storefrontConfig,
 } from '../db/schema.ts';
-import { desc, eq, sql, and, gte, lte } from 'drizzle-orm';
+import { desc, eq, sql, and, or, gte, lte } from 'drizzle-orm';
 import {
   sendBackendInvoiceEmail,
   dispatchedEmailsLog,
@@ -48,6 +48,19 @@ import {
   APEXPAY_WEBHOOK_SECRET,
   TSUKURI_UPI_DETAILS,
 } from '../lib/apexpay.ts';
+import {
+  getShadowfaxConfig,
+  saveShadowfaxConfig,
+  getShadowfaxWebhookLogs,
+  appendShadowfaxWebhookLog,
+  getShadowfaxOutboundLogs,
+  clearShadowfaxOutboundLogs,
+  getShadowfaxScans,
+  appendShadowfaxScan,
+  processShadowfaxWebhook,
+  pushOrderToShadowfax,
+  testConnectionShadowfax,
+} from '../lib/shadowfax.ts';
 import {
   getShiprocketConfig,
   saveShiprocketConfig,
@@ -1819,8 +1832,8 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
       totalAmount: inputTotalAmount,
     } = req.body;
 
-    const srConfig = getShiprocketConfig();
-    const deliveryPartner = courierName || req.body.courier || (srConfig.defaultCourier ? 'Shiprocket Express Logistics' : 'Shiprocket Logistics');
+    const sfxConfig = getShadowfaxConfig();
+    const deliveryPartner = courierName || req.body.courier || (sfxConfig.defaultCourier ? 'Shadowfax Express Logistics' : 'Shadowfax Logistics');
 
     if (!customerName || !shippingAddress) {
       return res.status(400).json({ error: 'Customer name and shipping address are required' });
@@ -1970,9 +1983,9 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
         status: 'New',
         paymentStatus: paymentMethod === 'COD' ? 'COD' : 'Paid',
         paymentMethod: paymentMethod || 'Online UPI',
-        courierName: deliveryPartner || 'Shiprocket Express Logistics',
-        trackingNumber: `SR12482565${Math.floor(100000 + Math.random() * 900000)}`,
-        notes: notes || (isCustomQuote ? 'Custom 3D CAD Upload Commission' : `Online Storefront Order [Courier: ${deliveryPartner || 'Shiprocket'}]`),
+        courierName: deliveryPartner || 'Shadowfax Express Logistics',
+        trackingNumber: `SFX${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`,
+        notes: notes || (isCustomQuote ? 'Custom 3D CAD Upload Commission' : `Online Storefront Order [Courier: ${deliveryPartner || 'Shadowfax Express'}]`),
         isCustomOrder: !!isCustomQuote,
         customFileUrl: customFileUrl || null,
         quoteAmount: isCustomQuote ? subtotal : 0,
@@ -2002,10 +2015,10 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
       });
     }
 
-    // 4b. Auto-manifest & push order to Shiprocket official dashboard
-    if ((deliveryPartner.toLowerCase().includes('shiprocket') || srConfig.defaultCourier) && srConfig.autoPushNewOrders) {
+    // 4b. Auto-manifest & push order to Shadowfax official integration
+    if ((deliveryPartner.toLowerCase().includes('shadowfax') || sfxConfig.defaultCourier) && sfxConfig.autoPushNewOrders) {
       try {
-        const manifestRes = await pushOrderToShiprocket({
+        const manifestRes = await pushOrderToShadowfax({
           ...newOrder,
           city,
           pincode,
@@ -2016,16 +2029,16 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
           await db
             .update(orders)
             .set({
-              courierName: 'Shiprocket Express Logistics',
+              courierName: 'Shadowfax Express Logistics',
               trackingNumber: manifestRes.awb,
-              notes: `${newOrder.notes || ''}\n[Shiprocket Manifest]: AWB ${manifestRes.awb} (Channel: ${srConfig.channelName} #${srConfig.channelId})`,
+              notes: `${newOrder.notes || ''}\n[Shadowfax Manifest]: AWB ${manifestRes.awb} (Partner: Shadowfax Express)`,
             })
             .where(eq(orders.id, newOrder.id));
           newOrder.trackingNumber = manifestRes.awb;
-          newOrder.courierName = 'Shiprocket Express Logistics';
+          newOrder.courierName = 'Shadowfax Express Logistics';
         }
       } catch (manifestErr) {
-        console.error('Shiprocket auto-push error:', manifestErr);
+        console.error('Shadowfax auto-push error:', manifestErr);
       }
     }
 
@@ -3049,7 +3062,9 @@ apiRouter.get('/orders/:idOrNumber', async (req: Request, res: Response) => {
     }
 
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, matchedOrder.id));
-    const scans = getShiprocketScans(matchedOrder.trackingNumber || matchedOrder.orderNumber);
+    const sfxScans = getShadowfaxScans(matchedOrder.trackingNumber || matchedOrder.orderNumber);
+    const srScans = getShiprocketScans(matchedOrder.trackingNumber || matchedOrder.orderNumber);
+    const scans = [...sfxScans, ...srScans];
 
     res.json({
       ...matchedOrder,
@@ -3394,6 +3409,229 @@ apiRouter.post('/shiprocket/serviceability', async (req: Request, res: Response)
     res.status(500).json({ success: false, message: err.message || 'Failed to check serviceability' });
   }
 });
+
+// ----------------------------------------------------
+// 22. SHADOWFAX PRODUCTION LOGISTICS INTEGRATION
+// Production Key Token: a6a05ac9ce3595a4b1461d07fd83363e1f32d32d
+// ----------------------------------------------------
+
+// Diagnostic GET for Shadowfax Webhook URL
+const handleShadowfaxDiagnostic = (req: Request, res: Response) => {
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const webhookUrl = `${protocol}://${host}/api/webhooks/shadowfax`;
+  const config = getShadowfaxConfig();
+
+  res.json({
+    name: 'Tsukuri3D',
+    service: 'Tsukuri3D Shadowfax Express Logistics Webhook Listener',
+    partnerName: config.partnerName,
+    productionTokenConfigured: !!config.productionToken,
+    tokenMasked: config.productionToken ? `${config.productionToken.slice(0, 6)}••••••••${config.productionToken.slice(-4)}` : 'None',
+    status: 'ACTIVE_AND_READY',
+    webhookUrl,
+    method: 'POST',
+    contentType: 'application/json',
+    description: 'Provide this URL in your Shadowfax Client Portal under Webhook Settings.',
+    supportedEvents: [
+      'ORDER_CREATED',
+      'PICKUP_SCHEDULED',
+      'PICKED_UP',
+      'IN_TRANSIT',
+      'REACHED_DESTINATION_HUB',
+      'OUT_FOR_DELIVERY',
+      'DELIVERED',
+      'RTO_INITIATED',
+    ],
+    samplePayload: {
+      awb_number: 'SFX1298401',
+      client_order_id: 'TSU-1082',
+      status: 'IN_TRANSIT',
+      location: 'Bengaluru Sorting Hub',
+      remarks: 'Shipment handed over to Shadowfax courier',
+    },
+  });
+};
+
+apiRouter.get('/webhooks/shadowfax', handleShadowfaxDiagnostic);
+apiRouter.get('/shadowfax/webhook', handleShadowfaxDiagnostic);
+
+// Webhook listener for Shadowfax updates
+apiRouter.post(['/webhooks/shadowfax', '/shadowfax/webhook'], async (req: Request, res: Response) => {
+  try {
+    const config = getShadowfaxConfig();
+    if (config.requireSecret && config.webhookSecret) {
+      const incoming =
+        req.headers['x-shadowfax-token'] ||
+        req.headers['x-api-key'] ||
+        req.headers['authorization']?.replace('Token ', '').replace('Bearer ', '') ||
+        req.query.secret ||
+        req.query.token;
+
+      if (incoming !== config.webhookSecret) {
+        return res.status(401).json({ status: false, error: 'Unauthorized: Invalid Shadowfax webhook secret' });
+      }
+    }
+
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const result = await processShadowfaxWebhook(req.body, { ip: clientIp, headers: req.headers });
+
+    res.status(200).json({ status: true, ...result, timestamp: new Date().toISOString() });
+  } catch (err: any) {
+    console.error('Unhandled Shadowfax webhook error:', err);
+    res.status(200).json({ status: false, error: err.message || 'Webhook processing failed' });
+  }
+});
+
+// Get Shadowfax Configuration
+apiRouter.get('/shadowfax/config', (req: Request, res: Response) => {
+  try {
+    const config = getShadowfaxConfig();
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const fullWebhookUrl = `${protocol}://${host}/api/webhooks/shadowfax`;
+    const logs = getShadowfaxWebhookLogs();
+
+    res.json({
+      config: {
+        ...config,
+        productionTokenMasked: config.productionToken
+          ? `${config.productionToken.slice(0, 6)}••••••••${config.productionToken.slice(-4)}`
+          : '',
+      },
+      webhookEndpoints: {
+        fullWebhookUrl,
+        relativeWebhookUrl: '/api/webhooks/shadowfax',
+        alternativeFullUrl: `${protocol}://${host}/api/shadowfax/webhook`,
+      },
+      stats: {
+        totalWebhookLogs: logs.length,
+        totalMatched: logs.filter((l) => l.matched).length,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to get Shadowfax config' });
+  }
+});
+
+// Save Shadowfax Configuration
+apiRouter.post('/shadowfax/config', (req: Request, res: Response) => {
+  try {
+    const updated = saveShadowfaxConfig(req.body);
+    res.json({ success: true, config: updated, message: 'Shadowfax configuration saved successfully.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update Shadowfax config' });
+  }
+});
+
+// Test Connection with Production Token
+apiRouter.post('/shadowfax/test-connection', async (req: Request, res: Response) => {
+  try {
+    const result = await testConnectionShadowfax(req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Failed to test Shadowfax connection' });
+  }
+});
+
+// Manifest Order to Shadowfax Logistics
+apiRouter.post('/shadowfax/orders/:id/manifest', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const numericId = parseInt(id, 10);
+
+    let [order] = await db.select().from(orders).where(or(eq(orders.id, isNaN(numericId) ? -1 : numericId), eq(orders.orderNumber, id))).limit(1);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found in database' });
+    }
+
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const manifestResult = await pushOrderToShadowfax(order, items);
+
+    if (manifestResult.success && manifestResult.awb) {
+      await db
+        .update(orders)
+        .set({
+          courierName: 'Shadowfax Express Logistics',
+          trackingNumber: manifestResult.awb,
+          notes: `${order.notes || ''}\n[Shadowfax Manifest]: AWB ${manifestResult.awb} (Partner: Shadowfax Express)`,
+        })
+        .where(eq(orders.id, order.id));
+
+      await logActivity(
+        'Logistics Engine',
+        'Manifested Order with Shadowfax',
+        'order',
+        order.orderNumber,
+        `AWB: ${manifestResult.awb}. Dispatched to Shadowfax Express with verified production token.`
+      );
+    }
+
+    res.json(manifestResult);
+  } catch (err: any) {
+    console.error('Shadowfax order manifest error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to manifest order with Shadowfax' });
+  }
+});
+
+// Get Shadowfax Scans for Tracking
+apiRouter.get('/shadowfax/scans/:identifier', (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const scans = getShadowfaxScans(identifier);
+    res.json(scans);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch scans' });
+  }
+});
+
+// Outbound logs
+apiRouter.get('/shadowfax/outbound-logs', (req: Request, res: Response) => {
+  try {
+    const logs = getShadowfaxOutboundLogs();
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch outbound logs' });
+  }
+});
+
+apiRouter.delete('/shadowfax/outbound-logs', (req: Request, res: Response) => {
+  try {
+    clearShadowfaxOutboundLogs();
+    res.json({ success: true, message: 'Shadowfax outbound logs cleared' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to clear outbound logs' });
+  }
+});
+
+// Diagnostic summary
+apiRouter.get('/shadowfax/status-summary', (req: Request, res: Response) => {
+  try {
+    const config = getShadowfaxConfig();
+    const outboundLogs = getShadowfaxOutboundLogs();
+    const webhookLogs = getShadowfaxWebhookLogs();
+
+    res.json({
+      configured: !!config.productionToken,
+      partnerName: config.partnerName,
+      productionTokenMasked: config.productionToken ? `${config.productionToken.slice(0, 6)}••••••••${config.productionToken.slice(-4)}` : '',
+      autoPushNewOrders: config.autoPushNewOrders,
+      apiEnvironment: config.apiEnvironment,
+      pickupWarehouseName: config.pickupWarehouseName,
+      pickupPincode: config.pickupPincode,
+      defaultCourier: config.defaultCourier,
+      outboundCount: outboundLogs.length,
+      outboundSuccessCount: outboundLogs.filter((l) => l.status === 'SUCCESS').length,
+      lastOutbound: outboundLogs[0] || null,
+      webhookCount: webhookLogs.length,
+      lastWebhook: webhookLogs[0] || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch Shadowfax summary' });
+  }
+});
+
 
 
 

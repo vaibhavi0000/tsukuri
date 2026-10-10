@@ -353,14 +353,14 @@ export const OrderSuccessPage: React.FC<OrderSuccessPageProps> = ({
             </div>
 
             {/* Stage 5 */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5">
+            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono font-bold text-slate-500">STAGE 5</span>
-                <Truck className="w-4 h-4 text-slate-500" />
+                <span className="text-[10px] font-mono font-bold text-amber-700">STAGE 5</span>
+                <Truck className="w-4 h-4 text-amber-600" />
               </div>
-              <h3 className="font-bold text-xs text-slate-900">Shiprocket Ready</h3>
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Dispatches directly under Sales Channel Tsukuri3d (#12482565).
+              <h3 className="font-bold text-xs text-amber-950">Shadowfax Ready</h3>
+              <p className="text-[11px] text-amber-900/80 leading-relaxed">
+                Manifested via Shadowfax Express API [Production Key Connected].
               </p>
             </div>
           </div>
@@ -404,10 +404,10 @@ export const OrderSuccessPage: React.FC<OrderSuccessPageProps> = ({
               <div className="space-y-1 bg-slate-50 p-3.5 rounded-2xl">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Delivery Address</span>
                 <p className="text-slate-700 leading-relaxed">
-                  {orderData.shippingAddress || 'Pan-India Express Dispatch via Shiprocket'}
+                  {orderData.shippingAddress || 'Pan-India Express Dispatch via Shadowfax Express'}
                 </p>
                 <p className="text-[11px] font-bold text-[#1e4b3e] mt-1">
-                  Carrier: {orderData.courierName || 'Shiprocket Express Logistics'}
+                  Carrier: {orderData.courierName || 'Shadowfax Express Logistics'}
                 </p>
               </div>
             </div>

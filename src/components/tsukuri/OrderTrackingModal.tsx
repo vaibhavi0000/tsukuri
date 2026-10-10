@@ -146,12 +146,25 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
         try {
           const scanId = found.trackingNumber || found.orderNumber;
           if (scanId) {
-            const scansRes = await fetch(`/api/shiprocket/scans/${encodeURIComponent(scanId)}`);
-            if (scansRes.ok) {
-              const scansData = await scansRes.json();
-              if (Array.isArray(scansData)) {
-                setLiveScans(scansData);
+            let scansData: any[] = [];
+            try {
+              const sfxRes = await fetch(`/api/shadowfax/scans/${encodeURIComponent(scanId)}`);
+              if (sfxRes.ok) {
+                const data = await sfxRes.json();
+                if (Array.isArray(data)) scansData = data;
               }
+            } catch {}
+            if (scansData.length === 0) {
+              try {
+                const srRes = await fetch(`/api/shiprocket/scans/${encodeURIComponent(scanId)}`);
+                if (srRes.ok) {
+                  const data = await srRes.json();
+                  if (Array.isArray(data)) scansData = data;
+                }
+              } catch {}
+            }
+            if (scansData.length > 0) {
+              setLiveScans(scansData);
             }
           }
         } catch {}
@@ -316,9 +329,13 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-700 gap-2">
                 <div>
                   <span className="text-slate-400">Logistics Partner:</span>{' '}
-                  <strong className="text-[#1a2e26]">{trackedOrder.courier || 'Shiprocket Logistics (Channel: Tsukuri3d)'}</strong>
-                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
-                    ⚡ Shiprocket Channel 12482565
+                  <strong className="text-[#1a2e26]">
+                    {trackedOrder.courier && trackedOrder.courier.toLowerCase().includes('shadowfax')
+                      ? 'Shadowfax Express Logistics'
+                      : trackedOrder.courier || 'Shadowfax Express Logistics'}
+                  </strong>
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#ea8f5a]/20 text-[#ea8f5a] border border-[#ea8f5a]/40">
+                    ⚡ Shadowfax Express Production API
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -331,13 +348,17 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
                   {trackedOrder.trackingNumber && (
                     <a
-                      href={`https://shiprocket.co//tracking/${encodeURIComponent(trackedOrder.trackingNumber)}`}
+                      href={
+                        trackedOrder.trackingNumber.startsWith('SFX') || !trackedOrder.trackingNumber.startsWith('SR')
+                          ? `https://tracker.shadowfax.in/`
+                          : `https://shiprocket.co//tracking/${encodeURIComponent(trackedOrder.trackingNumber)}`
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-2.5 py-1 rounded-lg bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
-                      title="Open live shipment status on Shiprocket tracking portal"
+                      title="Open live shipment status on tracking portal"
                     >
-                      <span>Track on Shiprocket</span>
+                      <span>Track on Shadowfax</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   )}
@@ -345,18 +366,18 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               </div>
             </div>
 
-            {/* Live Shiprocket Checkpoints Timeline (if webhook scans received) */}
+            {/* Live Checkpoints Timeline (if webhook scans received) */}
             {liveScans.length > 0 && (
               <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Truck className="w-4 h-4 text-emerald-800" />
                     <h4 className="font-bubbly text-xs text-emerald-950 uppercase tracking-wider">
-                      LIVE SHIPROCKET COURIER CHECKPOINTS ({liveScans.length})
+                      LIVE SHADOWFAX COURIER CHECKPOINTS ({liveScans.length})
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                    Shiprocket Channel 12482565
+                    Shadowfax Express Logistics
                   </span>
                 </div>
 

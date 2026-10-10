@@ -1,0 +1,23 @@
+{
+  "partnerName": "Shadowfax Express Logistics",
+  "productionToken": "a6a05ac9ce3595a4b1461d07fd83363e1f32d32d",
+  "apiEnvironment": "production",
+  "baseUrl": "https://api.shadowfax.in",
+  "webhookSecret": "tsukuri_sfx_sec_2026",
+  "requireSecret": false,
+  "autoSendCustomerEmail": true,
+  "defaultCourier": true,
+  "notifyOnDelivered": true,
+  "autoPushNewOrders": true,
+  "pickupLocation": "Primary Hub",
+  "pickupWarehouseName": "Tsukuri3D Kyoto Hub",
+  "pickupContactName": "Tsukuri3D Dispatch Desk",
+  "pickupPincode": "560102",
+  "pickupAddress": "Plot 42, HSR Layout Sector 1",
+  "pickupAddress2": "Near Metro Station",
+  "pickupCity": "Bengaluru",
+  "pickupState": "Karnataka",
+  "pickupPhone": "9845033021",
+  "pickupGstNumber": "29AABCT3921Z1Z8",
+  "updatedAt": "2026-10-10T00:30:00.000Z"
+}

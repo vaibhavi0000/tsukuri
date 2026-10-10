@@ -86,6 +86,7 @@ import { CostAndProfitAnalysisTab } from './adminTabs/CostAndProfitAnalysisTab.t
 import { EmailDeliverySettingsCard } from './adminTabs/EmailDeliverySettingsCard.tsx';
 import { DiscountsTab } from './adminTabs/DiscountsTab.tsx';
 import { AuditLogsTab, AuditLogItem } from './adminTabs/AuditLogsTab.tsx';
+import { ShadowfaxIntegrationCard } from './adminTabs/ShadowfaxIntegrationCard.tsx';
 import { ShiprocketIntegrationCard } from './adminTabs/ShiprocketIntegrationCard.tsx';
 import { formatMediaUrl } from './tsukuriData.ts';
 
@@ -348,6 +349,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     | 'reports'
     | 'settings'
     | 'audit_logs'
+    | 'shadowfax'
     | 'shiprocket'
   >('orders');
 
@@ -499,24 +501,24 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [manifestingOrderId, setManifestingOrderId] = useState<string | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
 
-  const handleManifestWithShiprocket = async (order: WorkshopOrder) => {
+  const handleManifestWithShadowfax = async (order: WorkshopOrder) => {
     setManifestingOrderId(order.orderNumber);
     try {
-      const res = await fetch(`/api/shiprocket/orders/${order.id}/manifest`, {
+      const res = await fetch(`/api/shadowfax/orders/${order.id}/manifest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
-      if (data.success && data.manifestResult?.awb) {
-        setAdminInvoiceToast(`⚡ Shiprocket: AWB ${data.manifestResult.awb} generated! (Channel: Tsukuri3d #12482565) ${data.manifestResult.message}`);
+      if (data.success && data.awb) {
+        setAdminInvoiceToast(`⚡ Shadowfax Express: AWB ${data.awb} generated! [Production Key Connected] ${data.message}`);
         setTimeout(() => setAdminInvoiceToast(null), 6000);
         fetchLiveData();
       } else {
-        setAdminInvoiceToast(`⚠️ Shiprocket: ${data.message || data.manifestResult?.message || 'Could not push order. Check your Shiprocket credentials in Admin Settings.'}`);
+        setAdminInvoiceToast(`⚠️ Shadowfax: ${data.message || data.error || 'Could not push order. Check your Shadowfax token in Admin Settings.'}`);
         setTimeout(() => setAdminInvoiceToast(null), 6000);
       }
     } catch (err: any) {
-      setAdminInvoiceToast(`Error pushing to Shiprocket: ${err.message}`);
+      setAdminInvoiceToast(`Error pushing to Shadowfax: ${err.message}`);
       setTimeout(() => setAdminInvoiceToast(null), 6000);
     } finally {
       setManifestingOrderId(null);
@@ -2021,7 +2023,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                   { id: 'orders', label: '1. Orders Flow', icon: Package },
                   { id: 'order_items', label: '2. Order Items', icon: CheckSquare },
                   { id: 'invoices', label: '3. Tax Invoices & Slips', icon: FileText },
-                  { id: 'shiprocket', label: '4. Shiprocket Logistics', icon: Truck, badge: 'Channel 12482565' },
+                  { id: 'shadowfax', label: '4. Shadowfax Logistics', icon: Truck, badge: 'Production Key Connected' },
                 ],
               },
               {
@@ -2241,33 +2243,33 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
 
                       {order.trackingNumber && (
                         <a
-                          href={`https://shiprocket.co//tracking/${encodeURIComponent(order.trackingNumber)}`}
+                          href={order.trackingNumber.startsWith('SFX') || !order.trackingNumber.startsWith('SR') ? `https://tracker.shadowfax.in/` : `https://shiprocket.co//tracking/${encodeURIComponent(order.trackingNumber)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="px-3 py-1.5 rounded-full bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
-                          title="Track parcel on official Shiprocket portal"
+                          title="Track parcel on official Shadowfax tracking portal"
                         >
                           <Truck className="w-3.5 h-3.5 text-emerald-800" />
-                          <span>Track Shiprocket</span>
+                          <span>Track Shadowfax</span>
                           <ExternalLink className="w-3 h-3 text-emerald-700" />
                         </a>
                       )}
 
-                      {/* Push to Shiprocket Official Dashboard */}
+                      {/* Push to Shadowfax Official Integration */}
                       <button
-                        onClick={() => handleManifestWithShiprocket(order)}
+                        onClick={() => handleManifestWithShadowfax(order)}
                         disabled={manifestingOrderId === order.orderNumber}
                         className="px-3 py-1.5 rounded-full bg-[#1e4b3e] hover:bg-[#15362c] active:scale-95 text-[#f3b755] text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
-                        title="Book shipment & push order directly to official Shiprocket merchant dashboard (Channel ID: 12482565)"
+                        title="Book shipment & push order directly to Shadowfax Express with verified production key token"
                       >
                         <Truck className={`w-3.5 h-3.5 ${manifestingOrderId === order.orderNumber ? 'animate-bounce' : ''}`} />
-                        <span>{manifestingOrderId === order.orderNumber ? 'Pushing...' : '⚡ Push to Shiprocket'}</span>
+                        <span>{manifestingOrderId === order.orderNumber ? 'Pushing...' : '⚡ Push to Shadowfax'}</span>
                       </button>
 
                       <button
                         onClick={() => {
                           setEditingCourierOrder(order);
-                          setEditCourierName(order.courier || 'Shiprocket Express Logistics');
+                          setEditCourierName(order.courier || 'Shadowfax Express Logistics');
                           setEditTrackingAwb(order.trackingNumber || '');
                         }}
                         className="px-3 py-1.5 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-[#f3b755] text-slate-700 text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
@@ -3825,8 +3827,8 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
             {/* EMAIL & AUTOMATED INVOICES SETTINGS */}
             <EmailDeliverySettingsCard />
 
-            {/* SHIPROCKET LOGISTICS & SALES CHANNEL INTEGRATION */}
-            <ShiprocketIntegrationCard
+            {/* SHADOWFAX PRODUCTION LOGISTICS & COURIER INTEGRATION */}
+            <ShadowfaxIntegrationCard
               ordersList={ordersList}
               onOrderUpdated={() => {
                 fetch('/api/orders')
@@ -3850,7 +3852,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                         status: o.status || 'New',
                         paymentStatus: o.paymentStatus || 'Paid',
                         orderDate: o.orderDate || new Date().toISOString(),
-                        courier: o.courier || o.courierName || 'Shiprocket Express Logistics',
+                        courier: o.courier || o.courierName || 'Shadowfax Express Logistics',
                         trackingNumber: o.trackingNumber,
                         notes: o.notes,
                       })));
@@ -3862,9 +3864,9 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
           </div>
         )}
 
-        {/* MODULE 4: SHIPROCKET LIVE COURIER & SALES CHANNEL (Direct Tab Access) */}
-        {activeTab === 'shiprocket' && (
-          <ShiprocketIntegrationCard
+        {/* MODULE 4: SHADOWFAX LIVE COURIER & PRODUCTION API (Direct Tab Access) */}
+        {(activeTab === 'shadowfax' || activeTab === 'shiprocket') && (
+          <ShadowfaxIntegrationCard
             ordersList={ordersList}
             onOrderUpdated={() => {
               fetch('/api/orders')
@@ -3888,7 +3890,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                       status: o.status || 'New',
                       paymentStatus: o.paymentStatus || 'Paid',
                       orderDate: o.orderDate || new Date().toISOString(),
-                      courier: o.courier || o.courierName || 'Shiprocket Express Logistics',
+                      courier: o.courier || o.courierName || 'Shadowfax Express Logistics',
                       trackingNumber: o.trackingNumber,
                       notes: o.notes,
                     })));
@@ -3985,10 +3987,11 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 >
                   <option value="Shiprocket Express Logistics">Shiprocket Express Logistics (Channel: Tsukuri3d #12482565)</option>
                   <option value="Shiprocket Surface Logistics">Shiprocket Surface Logistics (Channel: Tsukuri3d #12482565)</option>
+                  <option value="Shadowfax Express Logistics">Shadowfax Express Logistics (Primary Connected)</option>
+                  <option value="Shadowfax Priority">Shadowfax Priority</option>
                   <option value="BlueDart Surface Express">BlueDart Surface Express</option>
                   <option value="Delhivery Air Express">Delhivery Air Express</option>
                   <option value="DTDC Premium Express">DTDC Premium Express</option>
-                  <option value="Shadowfax Priority">Shadowfax Priority</option>
                   <option value="India Post Speed Post">India Post Speed Post</option>
                 </select>
               </div>
@@ -4000,19 +4003,19 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. SR1248256501 or courier AWB"
+                  placeholder="e.g. SFX1084291 or courier AWB"
                   value={editTrackingAwb}
                   onChange={(e) => setEditTrackingAwb(e.target.value)}
                   className="w-full bg-[#e8ece1]/50 border border-slate-200 rounded-xl p-2.5 font-mono text-slate-800"
                 />
                 <p className="text-[10px] text-slate-500 font-normal">
-                  Copy and paste the AWB generated from your Shiprocket dashboard (Channel: Tsukuri3d #12482565).
+                  Shadowfax Express Waybill (AWB) generated with verified production key token.
                 </p>
               </div>
 
-              {editCourierName.toLowerCase().includes('shiprocket') && (
+              {(editCourierName.toLowerCase().includes('shadowfax') || editCourierName.toLowerCase().includes('shiprocket')) && (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 font-normal">
-                  ⚡ <strong>Live Webhook Sync:</strong> When Shiprocket scans this AWB under Sales Channel 12482565, this order will automatically update to In Transit, Out for Delivery, or Delivered in real time.
+                  ⚡ <strong>Live Webhook Sync:</strong> When Shadowfax scans this AWB, this order will automatically update to In Transit, Out for Delivery, or Delivered in real time.
                 </div>
               )}
 

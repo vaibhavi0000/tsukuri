@@ -616,7 +616,7 @@ export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
   supportEmail: 'commersgyan@gmail.com',
   supportPhone: '+91 98450 33021',
   currency: 'INR (₹)',
-  deliveryPartner: 'Shiprocket Logistics (Channel: Tsukuri3d #12482565)',
+  deliveryPartner: 'Shadowfax Express Logistics (Production Token: a6a05ac9ce3595a4b1461d07fd83363e1f32d32d)',
   deliveryCharges: 0,
   deliveryEta: '3 to 4 Days Pan-India',
   chargeGst: false,

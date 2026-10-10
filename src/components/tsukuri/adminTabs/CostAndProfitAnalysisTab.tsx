@@ -693,7 +693,7 @@ export const CostAndProfitAnalysisTab: React.FC<CostAndProfitAnalysisTabProps> =
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 font-mono font-bold"
                 />
               </div>
-              <p className="text-[10px] text-slate-400">Shiprocket Logistics freight cost per dispatch (Channel: Tsukuri3d #12482565)</p>
+              <p className="text-[10px] text-slate-400">Shadowfax Express Logistics freight cost per dispatch (Production Token Connected)</p>
             </div>
 
             {/* 7. Miscellaneous Cost & Scrap */}

@@ -150,12 +150,12 @@ export const TermsOfServicePage: React.FC<TermsOfServicePageProps> = ({
               <span>Shipping, Delivery & Pan-India Logistics</span>
             </h2>
             <p>
-              Orders are dispatched Pan-India through our logistics partners (BlueDart Surface Express, Xpressbees, Shadowfax, and Shiprocket Express):
+              Orders are dispatched Pan-India through our primary delivery partner <strong>Shadowfax Express Logistics</strong> (supplemented by BlueDart & Xpressbees):
             </p>
             <ul className="list-disc pl-5 space-y-1 text-slate-600">
               <li><strong>Fulfillment & Slicing Timeline:</strong> 12 to 24 hours printing and quality deburring.</li>
               <li><strong>Courier Transit Time:</strong> 3 to 4 business days Pan-India express delivery.</li>
-              <li><strong>Tracking:</strong> Live Shiprocket AWB tracking numbers are generated and emailed with your automated GST invoice receipt upon shipment manifestation.</li>
+              <li><strong>Tracking:</strong> Live Shadowfax AWB tracking numbers are generated and emailed with your automated GST invoice receipt upon shipment manifestation.</li>
             </ul>
           </section>
 
