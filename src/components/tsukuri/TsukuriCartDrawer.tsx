@@ -45,6 +45,8 @@ interface TsukuriCartDrawerProps {
   onOrderSuccess: (order: any) => void;
   directBuyItem?: CartItem | null;
   onOpenTracking?: (orderNumber?: string, phone?: string) => void;
+  onOpenTerms?: () => void;
+  onOpenRefund?: () => void;
 }
 
 export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
@@ -57,10 +59,13 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
   onOrderSuccess,
   directBuyItem,
   onOpenTracking,
+  onOpenTerms,
+  onOpenRefund,
 }) => {
   const [step, setStep] = useState<'cart' | 'checkout' | 'confirmed'>(
     directBuyItem ? 'checkout' : 'cart'
   );
+  const [policyModal, setPolicyModal] = useState<'terms' | 'refund' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedOrder, setConfirmedOrder] = useState<any>(null);
 
@@ -1003,6 +1008,42 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                       </div>
                     </div>
                   )}
+                  {/* Terms & Refund Policy Notice for Customers Making a Payment (Requirement 1) */}
+                  <div className="p-2.5 bg-[#e8ece1]/60 rounded-xl border border-[#1e4b3e]/15 text-center">
+                    <p className="text-[10px] sm:text-[11px] text-slate-600 leading-normal font-normal">
+                      These will be displayed to customers when they make a payment, so they know your terms in advance.{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenTerms) {
+                            onClose();
+                            onOpenTerms();
+                          } else {
+                            setPolicyModal('terms');
+                          }
+                        }}
+                        className="font-bold text-[#1e4b3e] bg-[#f3b755]/25 hover:bg-[#f3b755]/45 px-1 py-0.5 rounded underline decoration-[#1e4b3e]/60 hover:decoration-[#1e4b3e] cursor-pointer transition-colors"
+                      >
+                        Terms of Service
+                      </button>{' '}
+                      and{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onOpenRefund) {
+                            onClose();
+                            onOpenRefund();
+                          } else {
+                            setPolicyModal('refund');
+                          }
+                        }}
+                        className="font-bold text-[#1e4b3e] bg-[#f3b755]/25 hover:bg-[#f3b755]/45 px-1 py-0.5 rounded underline decoration-[#1e4b3e]/60 hover:decoration-[#1e4b3e] cursor-pointer transition-colors"
+                      >
+                        Refund and Cancellation Policy
+                      </button>
+                      .
+                    </p>
+                  </div>
                 </div>
               </form>
             )}
@@ -1152,6 +1193,136 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                   </button>
                 </div>
               )}
+
+              {step === 'checkout' && (
+                <p className="text-[10px] text-slate-500 text-center leading-normal px-2 pt-0.5 font-normal">
+                  These will be displayed to customers when they make a payment, so they know your terms in advance.{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenTerms) {
+                        onClose();
+                        onOpenTerms();
+                      } else {
+                        setPolicyModal('terms');
+                      }
+                    }}
+                    className="font-bold text-[#1e4b3e] bg-[#f3b755]/25 hover:bg-[#f3b755]/45 px-1 py-0.5 rounded underline decoration-[#1e4b3e]/60 hover:decoration-[#1e4b3e] cursor-pointer"
+                  >
+                    Terms of Service
+                  </button>{' '}
+                  and{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenRefund) {
+                        onClose();
+                        onOpenRefund();
+                      } else {
+                        setPolicyModal('refund');
+                      }
+                    }}
+                    className="font-bold text-[#1e4b3e] bg-[#f3b755]/25 hover:bg-[#f3b755]/45 px-1 py-0.5 rounded underline decoration-[#1e4b3e]/60 hover:decoration-[#1e4b3e] cursor-pointer"
+                  >
+                    Refund and Cancellation Policy
+                  </button>
+                  .
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Policy Quick-View Modal Overlay */}
+          {policyModal && (
+            <div className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-3xl max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl border-2 border-[#1e4b3e]/20 overflow-hidden">
+                <div className="p-4 bg-[#1e4b3e] text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-lg bg-[#f3b755] text-[#1a2e26] flex items-center justify-center font-bubbly text-xs">
+                      造
+                    </span>
+                    <h3 className="font-bubbly text-sm text-[#f3b755]">
+                      {policyModal === 'terms' ? 'TERMS OF SERVICE' : 'REFUND & CANCELLATION POLICY'}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyModal(null)}
+                    className="p-1 rounded-full hover:bg-white/20 text-white cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="p-5 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed">
+                  {policyModal === 'terms' ? (
+                    <>
+                      <div className="p-3 bg-[#e8ece1]/50 rounded-xl border border-[#1e4b3e]/15">
+                        <strong className="text-[#1e4b3e] block text-xs">Custom 3D Printing Agreement</strong>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          TsuKURI_3D items are custom-fabricated on-demand with 0.12mm bio-PLA precision layers.
+                        </p>
+                      </div>
+                      <p>
+                        <strong>1. Custom Fabrication:</strong> Every product is made-to-order. Microscopic FDM layer striations are natural maker hallmarks of additive manufacturing.
+                      </p>
+                      <p>
+                        <strong>2. Pricing & GST:</strong> Prices in INR include applicable GST. Instant ₹10 discount applies to online UPI / Gateway payments. A ₹50 courier fee applies to COD.
+                      </p>
+                      <p>
+                        <strong>3. Pan-India Delivery:</strong> Dispatched in biodegradable packaging within 12–24h. Express transit ETA is 3 to 4 days Pan-India with live AWB tracking.
+                      </p>
+                      <p>
+                        <strong>4. Jurisdiction:</strong> Subject to Bengaluru, India courts. Support desk: commersgyan@gmail.com.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                        <strong className="text-amber-900 block text-xs">7-Day Transit Cover & 2-Hour Cancellation</strong>
+                        <p className="text-[11px] text-slate-700 mt-0.5">
+                          Cancel within 2 hours for a 100% refund. Transit damages get free immediate reprints!
+                        </p>
+                      </div>
+                      <p>
+                        <strong>1. 2-Hour Cancellation:</strong> Cancel within 2 hours of placing your order for a 100% full reversal to your original payment mode before slicing begins.
+                      </p>
+                      <p>
+                        <strong>2. Damaged in Transit:</strong> If courier damages your piece, email unboxing photos within 48 hours to commersgyan@gmail.com for a free reprint and replacement dispatch.
+                      </p>
+                      <p>
+                        <strong>3. Refund Reversals:</strong> Approved refunds credit back to your original payment account (UPI / Cards / Net Banking) within 5 to 7 business days.
+                      </p>
+                      <p>
+                        <strong>4. Non-Refundable:</strong> Slight layer textures standard to FDM, customer address mistakes, or heat misuse (&gt;55°C).
+                      </p>
+                    </>
+                  )}
+                </div>
+
+                <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetModal = policyModal;
+                      setPolicyModal(null);
+                      onClose();
+                      if (targetModal === 'terms' && onOpenTerms) onOpenTerms();
+                      if (targetModal === 'refund' && onOpenRefund) onOpenRefund();
+                    }}
+                    className="text-[11px] font-bold text-[#1e4b3e] hover:underline cursor-pointer"
+                  >
+                    Open Full Dedicated Page →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyModal(null)}
+                    className="px-4 py-2 rounded-full bg-[#1e4b3e] text-[#f3b755] font-bubbly text-xs cursor-pointer"
+                  >
+                    Back to Checkout
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

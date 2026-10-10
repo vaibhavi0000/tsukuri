@@ -34,6 +34,8 @@ interface TsukuriStorefrontProps {
   liveVisitorsCount: number;
   productsList: TsukuriProduct[];
   bestSellerProductId?: number;
+  onOpenTerms?: () => void;
+  onOpenRefund?: () => void;
 }
 
 export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
@@ -43,6 +45,8 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
   liveVisitorsCount,
   productsList,
   bestSellerProductId,
+  onOpenTerms,
+  onOpenRefund,
 }) => {
   const [cart, setCart] = useState<CartItem[]>([
     { product: productsList[0] || INITIAL_TSUKURI_PRODUCTS[0], quantity: 1 },
@@ -775,7 +779,27 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
           </div>
 
           <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400 text-center sm:text-left">
-            <p>© 2024–2026 Tsukuri3d. Designed bold, printed layer by layer · Official Studio Support Desk</p>
+            <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4">
+              <p>© 2024–2026 Tsukuri3d. Designed bold, printed layer by layer</p>
+              <span className="hidden sm:inline text-white/20">•</span>
+              <div className="flex items-center gap-3 text-[11px]">
+                <button
+                  type="button"
+                  onClick={onOpenTerms}
+                  className="text-slate-300 hover:text-[#f3b755] underline cursor-pointer transition-colors"
+                >
+                  Terms of Service
+                </button>
+                <span className="text-white/20">•</span>
+                <button
+                  type="button"
+                  onClick={onOpenRefund}
+                  className="text-slate-300 hover:text-[#f3b755] underline cursor-pointer transition-colors"
+                >
+                  Refund and Cancellation Policy
+                </button>
+              </div>
+            </div>
 
             <button
               onClick={onOpenAdmin}
@@ -806,6 +830,8 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
           if (ph) setTrackingPhone(ph);
           setIsTrackingModalOpen(true);
         }}
+        onOpenTerms={onOpenTerms}
+        onOpenRefund={onOpenRefund}
       />
 
       {/* Order Tracking Modal (Requirement 15) */}

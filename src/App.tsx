@@ -10,6 +10,8 @@ import {
   INITIAL_TSUKURI_PRODUCTS,
   CartItem,
 } from './components/tsukuri/tsukuriData.ts';
+import { TermsOfServicePage } from './components/tsukuri/TermsOfServicePage.tsx';
+import { RefundCancellationPolicyPage } from './components/tsukuri/RefundCancellationPolicyPage.tsx';
 import {
   saveProductToFirestore,
   deleteProductFromFirestore,
@@ -184,7 +186,7 @@ export const App: React.FC = () => {
   }, []);
 
   // Determine initial view from URL path or search query
-  const getInitialView = (): 'storefront' | 'product' | 'admin' | 'order-success' => {
+  const getInitialView = (): 'storefront' | 'product' | 'admin' | 'order-success' | 'terms' | 'refund' => {
     if (typeof window === 'undefined') return 'storefront';
     const params = new URLSearchParams(window.location.search);
     const path = window.location.pathname.toLowerCase();
@@ -199,6 +201,25 @@ export const App: React.FC = () => {
       return 'order-success';
     }
 
+    if (
+      path === '/terms' ||
+      path === '/terms-of-service' ||
+      params.get('page') === 'terms' ||
+      window.location.hash === '#terms'
+    ) {
+      return 'terms';
+    }
+
+    if (
+      path === '/refund' ||
+      path === '/refund-policy' ||
+      path === '/refund-cancellation-policy' ||
+      params.get('page') === 'refund' ||
+      window.location.hash === '#refund'
+    ) {
+      return 'refund';
+    }
+
     if (params.get('view') === 'admin' || path === '/admin' || window.location.hash === '#admin') {
       return 'admin';
     }
@@ -208,7 +229,7 @@ export const App: React.FC = () => {
     return 'storefront';
   };
 
-  const [viewMode, setViewMode] = useState<'storefront' | 'product' | 'admin' | 'order-success'>(getInitialView);
+  const [viewMode, setViewMode] = useState<'storefront' | 'product' | 'admin' | 'order-success' | 'terms' | 'refund'>(getInitialView);
 
   // Listen to popstate for browser navigation
   useEffect(() => {
@@ -261,6 +282,22 @@ export const App: React.FC = () => {
   const handleBackToStore = () => {
     setViewMode('storefront');
     window.history.pushState({}, '', '/');
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+
+  const handleOpenTerms = () => {
+    setViewMode('terms');
+    window.history.pushState({}, '', '/terms');
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+
+  const handleOpenRefund = () => {
+    setViewMode('refund');
+    window.history.pushState({}, '', '/refund');
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
@@ -383,6 +420,22 @@ export const App: React.FC = () => {
           liveVisitorsCount={liveVisitors}
           productsList={productsList}
           bestSellerProductId={bestSellerProductId}
+          onOpenTerms={handleOpenTerms}
+          onOpenRefund={handleOpenRefund}
+        />
+      )}
+
+      {viewMode === 'terms' && (
+        <TermsOfServicePage
+          onBackToStore={handleBackToStore}
+          onOpenRefundPolicy={handleOpenRefund}
+        />
+      )}
+
+      {viewMode === 'refund' && (
+        <RefundCancellationPolicyPage
+          onBackToStore={handleBackToStore}
+          onOpenTermsOfService={handleOpenTerms}
         />
       )}
 
@@ -445,6 +498,8 @@ export const App: React.FC = () => {
             if (ph) setTrackingPhone(ph);
             setIsTrackingModalOpen(true);
           }}
+          onOpenTerms={handleOpenTerms}
+          onOpenRefund={handleOpenRefund}
         />
       )}
 
