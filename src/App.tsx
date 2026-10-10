@@ -112,11 +112,33 @@ export const App: React.FC = () => {
     const unsubscribeFirestore = subscribeToProducts((firestoreProducts) => {
       if (isMounted && Array.isArray(firestoreProducts) && firestoreProducts.length > 0) {
         const currentDeleted = getStoredDeletedIds();
-        const active = firestoreProducts.filter((p) => !currentDeleted.includes(Number(p.id)));
-        setProductsList(active);
-        try {
-          localStorage.setItem('tsukuri_products', JSON.stringify(active));
-        } catch {}
+        setProductsList((prevList) => {
+          const map = new Map<number, TsukuriProduct>();
+          // First add Firestore products that are not marked as deleted
+          firestoreProducts.forEach((p) => {
+            const id = Number(p.id);
+            if (!currentDeleted.includes(id)) {
+              map.set(id, p);
+            }
+          });
+          // Preserve any newly added products from local list that aren't deleted
+          prevList.forEach((p) => {
+            const id = Number(p.id);
+            if (!currentDeleted.includes(id)) {
+              if (!map.has(id)) {
+                map.set(id, p);
+                // Also persist to firestore in background
+                saveProductToFirestore(p).catch(() => {});
+              }
+            }
+          });
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
+          try {
+            localStorage.setItem('tsukuri_products', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
       }
     });
 
@@ -326,18 +348,25 @@ export const App: React.FC = () => {
 
   // Admin CRUD handlers (Persisted to Cloud Firestore & Synced to Mobile/Vercel)
   const handleAddProduct = async (newProd: TsukuriProduct) => {
+    // 1. Remove from deleted tombstones if it was ever marked deleted
+    try {
+      const currentDeleted = getStoredDeletedIds().filter((id) => id !== Number(newProd.id));
+      localStorage.setItem('tsukuri_deleted_product_ids', JSON.stringify(currentDeleted));
+    } catch {}
+
+    // 2. Set product in state immediately so it displays without waiting for network
     setProductsList((prev) => {
-      const updated = [newProd, ...prev.filter((p) => p.id !== newProd.id)];
+      const updated = [newProd, ...prev.filter((p) => Number(p.id) !== Number(newProd.id))];
       try {
         localStorage.setItem('tsukuri_products', JSON.stringify(updated));
       } catch {}
       return updated;
     });
 
-    // Save to Firestore (Real-time cloud database, works on Vercel & mobile!)
+    // 3. Save to Firestore (Real-time cloud database, works on Vercel & mobile!)
     await saveProductToFirestore(newProd);
 
-    // Also notify local backend if running in fullstack Express
+    // 4. Also notify local backend if running in fullstack Express
     try {
       await fetch('/api/tsukuri-products', {
         method: 'POST',

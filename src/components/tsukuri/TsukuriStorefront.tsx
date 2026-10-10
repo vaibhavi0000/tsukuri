@@ -480,7 +480,19 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
           </div>
 
           {/* REQUIREMENT 1: TWO CARDS ON MOBILE VIEW (grid-cols-2) */}
-          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
+          {filteredProducts.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-3xl border border-slate-200 p-8 shadow-2xs">
+              <p className="font-bubbly text-base sm:text-lg text-[#1a2e26]">No drops found in "{selectedCategory}".</p>
+              <button
+                type="button"
+                onClick={() => setSelectedCategory('All')}
+                className="mt-3 px-5 py-2 bg-[#1e4b3e] text-[#f3b755] font-bubbly text-xs rounded-full hover:bg-[#15342b] cursor-pointer shadow-xs active:scale-95"
+              >
+                Show All Drops ({displayProducts.length})
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
             {filteredProducts.map((prod) => {
               const discountPercent = prod.discountPercent || 25;
               const originalMRP = prod.originalMRPINR || Math.round(prod.priceINR * 1.35);
@@ -550,6 +562,7 @@ export const TsukuriStorefront: React.FC<TsukuriStorefrontProps> = ({
               );
             })}
           </div>
+          )}
         </div>
 
         {/* ==============================================================

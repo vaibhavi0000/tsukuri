@@ -89,6 +89,7 @@ import { AuditLogsTab, AuditLogItem } from './adminTabs/AuditLogsTab.tsx';
 import { ShadowfaxIntegrationCard } from './adminTabs/ShadowfaxIntegrationCard.tsx';
 import { ShiprocketIntegrationCard } from './adminTabs/ShiprocketIntegrationCard.tsx';
 import { formatMediaUrl } from './tsukuriData.ts';
+import { saveMediaBlob } from '../../lib/mediaStorage.ts';
 
 interface TsukuriAdminPanelProps {
   onBackToStore: () => void;
@@ -207,8 +208,8 @@ function generateUniqueReviewsForProduct(
   return generated;
 }
 
-// Client-side image compressor for instant, robust mobile & desktop uploads
-function compressImage(file: File, maxWidth = 1000, maxHeight = 1000, quality = 0.84): Promise<string> {
+// Client-side image compressor for instant, robust mobile & desktop uploads (keeps doc < 100KB)
+function compressImage(file: File, maxWidth = 720, maxHeight = 720, quality = 0.72): Promise<string> {
   return new Promise((resolve) => {
     const isLikelyImage = !file.type || file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|svg|avif|bmp|heic)$/i.test(file.name);
     if (!isLikelyImage) {
@@ -780,9 +781,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [productToDelete, setProductToDelete] = useState<TsukuriProduct | null>(null);
   const [productActionToast, setProductActionToast] = useState<string>('');
   const [isPhotoUploading, setIsPhotoUploading] = useState(false);
-  const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [photoUrlInput, setPhotoUrlInput] = useState('');
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const heroVideoInputRef = useRef<HTMLInputElement>(null);
+  const carouselVideoInputRef = useRef<HTMLInputElement>(null);
+  const [heroVideoMeta, setHeroVideoMeta] = useState<{ name: string; size: string } | null>(null);
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+  const [isCarouselVideoUploading, setIsCarouselVideoUploading] = useState(false);
 
   // Requirement 5: Delivery Partner and Delivery Charges per Product
   const [prodFormDeliveryPartner, setProdFormDeliveryPartner] = useState('BlueDart Surface Express');
@@ -1273,56 +1279,26 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     }
   };
 
-  // Requirement 16: Device Video Upload (No URL required)
+  // Requirement 16: Device Video Upload (Supports any device video: MP4, WebM, MOV, etc.)
   const handleDeviceVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 25 * 1024 * 1024) {
-        setProductActionToast('Notice: Video too large (>25MB). Please enter a YouTube or MP4 link.');
-        setTimeout(() => setProductActionToast(''), 4500);
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        if (ev.target?.result) {
-          const dataUrl = ev.target.result as string;
-          try {
-            const res = await fetch('/api/upload-media', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ dataUrl, filename: file.name }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data && data.url) {
-                setProdFormVideoUrl(data.url);
-                setProductActionToast(`Hero video "${file.name}" uploaded successfully.`);
-                setTimeout(() => setProductActionToast(''), 3000);
-                return;
-              }
-            }
-          } catch {}
-          if (file.size <= 400 * 1024) {
-            setProdFormVideoUrl(dataUrl);
-          } else {
-            setProductActionToast('For Vercel hosting, enter a YouTube or hosted MP4 URL.');
-            setTimeout(() => setProductActionToast(''), 5000);
-          }
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+      setIsVideoUploading(true);
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      setProductActionToast(`Processing video "${file.name}" (${sizeMb} MB)...`);
 
-  // Requirement 3 & 16: Device Carousel Video Upload (No URL required)
-  const handleDeviceCarouselVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        if (ev.target?.result) {
-          const dataUrl = ev.target.result as string;
-          let finalUrl = '';
+      try {
+        let finalUrl = '';
+
+        // 1. Read file as data URL to attempt server upload
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve) => {
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+        });
+
+        if (dataUrl) {
           try {
             const res = await fetch('/api/upload-media', {
               method: 'POST',
@@ -1336,27 +1312,91 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
               }
             }
           } catch {}
+        }
 
-          if (!finalUrl && file.size <= 400 * 1024) {
-            finalUrl = dataUrl;
-          }
-
-          if (finalUrl) {
-            const newVid: CarouselVideoItem = {
-              id: `vid-${Date.now()}`,
-              title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-              url: finalUrl,
-            };
-            setProdFormCarouselVideos((prev) => [...prev, newVid]);
-            setProductActionToast(`Carousel video "${file.name}" linked.`);
-            setTimeout(() => setProductActionToast(''), 3000);
-          } else {
-            setProductActionToast('For Vercel hosting, enter a video link (YouTube or MP4 URL).');
-            setTimeout(() => setProductActionToast(''), 5000);
+        // 2. Client-side IndexedDB persistence fallback (guaranteed for Vercel & mobile sites)
+        if (!finalUrl) {
+          try {
+            const blobUrl = await saveMediaBlob(`hero_vid_${file.name}_${Date.now()}`, file);
+            finalUrl = blobUrl;
+          } catch {
+            finalUrl = dataUrl || URL.createObjectURL(file);
           }
         }
-      };
-      reader.readAsDataURL(file);
+
+        setProdFormVideoUrl(finalUrl);
+        setHeroVideoMeta({ name: file.name, size: `${sizeMb} MB` });
+        setProductActionToast(`Video "${file.name}" uploaded from device!`);
+        setTimeout(() => setProductActionToast(''), 4000);
+      } catch (err: any) {
+        console.error('Video upload error:', err);
+        setProductActionToast('Error reading video file. Please check file format.');
+        setTimeout(() => setProductActionToast(''), 4000);
+      } finally {
+        setIsVideoUploading(false);
+        e.target.value = '';
+      }
+    }
+  };
+
+  // Requirement 3 & 16: Device Carousel Video Upload (No URL required)
+  const handleDeviceCarouselVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setIsCarouselVideoUploading(true);
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      setProductActionToast(`Processing carousel clip "${file.name}" (${sizeMb} MB)...`);
+
+      try {
+        let finalUrl = '';
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve) => {
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(file);
+        });
+
+        if (dataUrl) {
+          try {
+            const res = await fetch('/api/upload-media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dataUrl, filename: file.name }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.url) {
+                finalUrl = data.url;
+              }
+            }
+          } catch {}
+        }
+
+        if (!finalUrl) {
+          try {
+            const blobUrl = await saveMediaBlob(`carousel_vid_${file.name}_${Date.now()}`, file);
+            finalUrl = blobUrl;
+          } catch {
+            finalUrl = dataUrl || URL.createObjectURL(file);
+          }
+        }
+
+        const newVid: CarouselVideoItem = {
+          id: `vid-${Date.now()}`,
+          title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
+          url: finalUrl,
+        };
+        setProdFormCarouselVideos((prev) => [...prev, newVid]);
+        setProductActionToast(`Carousel video "${file.name}" added successfully.`);
+        setTimeout(() => setProductActionToast(''), 3500);
+      } catch (err) {
+        console.error('Carousel video upload error:', err);
+        setProductActionToast('Could not process video file.');
+        setTimeout(() => setProductActionToast(''), 3500);
+      } finally {
+        setIsCarouselVideoUploading(false);
+        e.target.value = '';
+      }
     }
   };
 
@@ -4853,79 +4893,163 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
 
               {/* Requirement 16: Device Video Upload (No URL required) */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
-                <div className="flex justify-between items-center">
-                  <label className="text-[11px] font-bold text-[#1e4b3e] uppercase block">
-                    Product Video (Device File or URL)
-                  </label>
-                  <label
-                    htmlFor="admin-device-video"
-                    className="px-3 py-1 bg-[#1e4b3e] text-[#f3b755] rounded-full font-bubbly text-[10px] cursor-pointer hover:bg-[#15342b] transition-all flex items-center gap-1 shadow-2xs"
-                  >
-                    <UploadCloud className="w-3.5 h-3.5" />
-                    <span>Upload Video from Device</span>
-                  </label>
-                  <input
-                    id="admin-device-video"
-                    type="file"
-                    accept="video/*"
-                    onChange={handleDeviceVideoUpload}
-                    className="hidden"
-                  />
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-[#1e4b3e] uppercase flex items-center gap-1.5">
+                      <Film className="w-3.5 h-3.5 text-[#1e4b3e]" />
+                      <span>Product Video (Upload from Device or Paste Link)</span>
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      Plays in product gallery with 3D print timelapses and craftsmanship demonstrations.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="admin-device-video"
+                      className="px-3 py-1.5 bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] rounded-full font-bubbly text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-2xs shrink-0"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>{isVideoUploading ? 'Processing Video...' : 'Upload Video from Device'}</span>
+                    </label>
+                    <input
+                      id="admin-device-video"
+                      ref={heroVideoInputRef}
+                      type="file"
+                      accept="video/mp4,video/webm,video/ogg,video/quicktime,video/*"
+                      onChange={handleDeviceVideoUpload}
+                      className="hidden"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  placeholder="Or paste video URL (MP4 / YouTube preview)"
-                  value={prodFormVideoUrl}
-                  onChange={(e) => setProdFormVideoUrl(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono"
-                />
-                {prodFormVideoUrl && (
-                  <p className="text-[10px] font-mono text-emerald-700 font-bold truncate">
-                    ✓ Video Linked ({prodFormVideoUrl.slice(0, 50)}...)
-                  </p>
+
+                {/* Video Player Preview if uploaded */}
+                {prodFormVideoUrl ? (
+                  <div className="p-3 bg-white rounded-xl border border-emerald-200 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span className="text-xs font-bold text-[#1e4b3e] truncate">
+                          {heroVideoMeta?.name || '✓ Device Video Linked'}
+                        </span>
+                        {heroVideoMeta?.size && (
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono shrink-0">
+                            {heroVideoMeta.size}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => heroVideoInputRef.current?.click()}
+                          className="text-[10px] text-[#1e4b3e] hover:underline font-bold"
+                        >
+                          Change File
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProdFormVideoUrl('');
+                            setHeroVideoMeta(null);
+                          }}
+                          className="text-[10px] text-rose-600 hover:text-rose-800 font-bold"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="relative rounded-lg overflow-hidden bg-black/90 aspect-video max-h-48 flex items-center justify-center">
+                      <video
+                        src={prodFormVideoUrl}
+                        controls
+                        playsInline
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Or paste video link (MP4 URL / YouTube preview)"
+                      value={prodFormVideoUrl}
+                      onChange={(e) => setProdFormVideoUrl(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono"
+                    />
+                  </div>
                 )}
               </div>
 
               {/* Requirement 3: Carousel Videos Above Reviews */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <label className="text-[11px] font-bold text-[#1e4b3e] uppercase block">
-                      Video Carousel (Placed above Customer Reviews)
+                    <label className="text-[11px] font-bold text-[#1e4b3e] uppercase flex items-center gap-1.5">
+                      <Play className="w-3.5 h-3.5 text-[#1e4b3e]" />
+                      <span>Video Carousel Clips ({prodFormCarouselVideos.length})</span>
                     </label>
-                    <span className="text-[10px] text-slate-400">Allows customer to slide through video demonstrations</span>
+                    <span className="text-[10px] text-slate-500">
+                      9:16 vertical reels placed above customer reviews on product page.
+                    </span>
                   </div>
-                  <label
-                    htmlFor="admin-device-carousel-video"
-                    className="px-3 py-1 bg-[#1e4b3e] text-[#f3b755] rounded-full font-bubbly text-[10px] cursor-pointer hover:bg-[#15342b] transition-all flex items-center gap-1 shadow-2xs shrink-0"
-                  >
-                    <UploadCloud className="w-3.5 h-3.5" />
-                    <span>+ Upload Clip from Device</span>
-                  </label>
-                  <input
-                    id="admin-device-carousel-video"
-                    type="file"
-                    accept="video/*"
-                    onChange={handleDeviceCarouselVideoUpload}
-                    className="hidden"
-                  />
+                  <div className="flex items-center gap-2">
+                    <label
+                      htmlFor="admin-device-carousel-video"
+                      className="px-3 py-1.5 bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] rounded-full font-bubbly text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-2xs shrink-0"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>{isCarouselVideoUploading ? 'Processing...' : '+ Upload Video from Device'}</span>
+                    </label>
+                    <input
+                      id="admin-device-carousel-video"
+                      ref={carouselVideoInputRef}
+                      type="file"
+                      accept="video/mp4,video/webm,video/ogg,video/quicktime,video/*"
+                      onChange={handleDeviceCarouselVideoUpload}
+                      className="hidden"
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-1.5">
+                {/* List of Carousel Clips */}
+                <div className="space-y-2">
                   {prodFormCarouselVideos.map((vid, vIdx) => (
-                    <div key={vid.id || vIdx} className="flex items-center justify-between p-2 bg-white rounded-xl border border-slate-200 text-xs">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Play className="w-3.5 h-3.5 text-[#1e4b3e] shrink-0" />
-                        <span className="font-bold text-[#1a2e26] truncate">{vid.title}</span>
-                        <span className="text-[10px] font-mono text-slate-400 truncate">({vid.url.slice(0, 30)}...)</span>
+                    <div key={vid.id || vIdx} className="p-2.5 bg-white rounded-xl border border-slate-200 text-xs shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        {/* Mini video thumbnail */}
+                        <div className="w-12 h-12 rounded-lg bg-black/90 overflow-hidden shrink-0 flex items-center justify-center">
+                          <video
+                            src={vid.url}
+                            className="w-full h-full object-cover"
+                            preload="metadata"
+                            muted
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <input
+                            type="text"
+                            value={vid.title}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setProdFormCarouselVideos((prev) =>
+                                prev.map((item, i) => (i === vIdx ? { ...item, title: val } : item))
+                              );
+                            }}
+                            placeholder="Video Title"
+                            className="w-full text-xs font-bold text-[#1a2e26] bg-slate-50 border border-slate-200 rounded px-2 py-0.5"
+                          />
+                          <p className="text-[10px] font-mono text-slate-400 truncate">
+                            {vid.url.startsWith('blob:') ? 'Device Uploaded Clip' : vid.url.slice(0, 45)}
+                          </p>
+                        </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => setProdFormCarouselVideos((prev) => prev.filter((_, i) => i !== vIdx))}
-                        className="text-slate-300 hover:text-rose-500 p-1"
+                        className="text-slate-300 hover:text-rose-500 p-1.5 self-end sm:self-center transition-colors cursor-pointer"
                         title="Remove Carousel Video"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   ))}

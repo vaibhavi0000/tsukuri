@@ -1,5 +1,7 @@
 {
   "rewrites": [
+    { "source": "/api/webhooks/shadowfax", "destination": "/api/webhooks/shadowfax" },
+    { "source": "/api/shadowfax/webhook", "destination": "/api/webhooks/shadowfax" },
     { "source": "/api/webhooks/xpressbees", "destination": "/api/webhooks/xpressbees" },
     { "source": "/api/uploads/(.*)", "destination": "/uploads/$1" },
     { "source": "/uploads/(.*)", "destination": "/uploads/$1" },

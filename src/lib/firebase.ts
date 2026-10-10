@@ -76,21 +76,35 @@ export async function saveProductToFirestore(product: any): Promise<boolean> {
     cleanProd.updatedAt = new Date().toISOString();
 
     // Guard: Prevent oversized base64 strings from exceeding Firestore 1MB document limit
-    if (typeof cleanProd.videoUrl === 'string' && cleanProd.videoUrl.length > 300000 && cleanProd.videoUrl.startsWith('data:')) {
+    if (typeof cleanProd.imageUrl === 'string' && cleanProd.imageUrl.startsWith('blob:')) {
+      cleanProd.imageUrl = 'https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=700';
+    } else if (typeof cleanProd.imageUrl === 'string' && cleanProd.imageUrl.length > 200000 && cleanProd.imageUrl.startsWith('data:')) {
+      cleanProd.imageUrl = cleanProd.imageUrl.slice(0, 190000);
+    }
+
+    if (typeof cleanProd.videoUrl === 'string' && cleanProd.videoUrl.startsWith('blob:')) {
+      cleanProd.videoUrl = '';
+    } else if (typeof cleanProd.videoUrl === 'string' && cleanProd.videoUrl.length > 120000 && cleanProd.videoUrl.startsWith('data:')) {
       cleanProd.videoUrl = '';
     }
+
     if (Array.isArray(cleanProd.carouselVideos)) {
       cleanProd.carouselVideos = cleanProd.carouselVideos.map((v: any) => {
-        if (typeof v.url === 'string' && v.url.length > 300000 && v.url.startsWith('data:')) {
+        if (typeof v.url === 'string' && (v.url.startsWith('blob:') || (v.url.startsWith('data:') && v.url.length > 120000))) {
           return { ...v, url: '' };
         }
         return v;
       });
     }
+
     if (Array.isArray(cleanProd.images)) {
-      cleanProd.images = cleanProd.images.map((img: any) => {
-        if (typeof img === 'string' && img.length > 400000 && img.startsWith('data:')) {
+      cleanProd.images = cleanProd.images.slice(0, 5).map((img: any, idx: number) => {
+        if (typeof img === 'string' && img.startsWith('blob:')) {
           return 'https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=700';
+        }
+        if (typeof img === 'string' && img.startsWith('data:')) {
+          const maxLen = idx === 0 ? 190000 : 90000;
+          return img.length > maxLen ? img.slice(0, maxLen) : img;
         }
         return img;
       });

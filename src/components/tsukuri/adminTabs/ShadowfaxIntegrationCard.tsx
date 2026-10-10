@@ -773,28 +773,95 @@ export const ShadowfaxIntegrationCard: React.FC<ShadowfaxIntegrationCardProps> =
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            Provide this webhook endpoint to the Shadowfax merchant portal or support executive. Shadowfax sends real-time dispatch, transit hub, out-for-delivery, and delivery completion events to this URL.
+            Provide these exact details in your Shadowfax Client Portal under <strong>Settings &rarr; Webhooks &rarr; Add New Webhook</strong>. Shadowfax sends real-time dispatch, transit hub, out-for-delivery, and delivery completion events directly to this URL.
           </p>
 
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-slate-700 block uppercase">
-              Live Webhook Callback URL
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                readOnly
-                value={webhookUrl}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-mono text-xs text-slate-800 pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => copyToClipboard(webhookUrl, 'wh')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
-                title="Copy Webhook URL"
-              >
-                {copiedKey === 'wh' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-              </button>
+          {/* Form Guide specifically matching Shadowfax Portal fields */}
+          <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-4 shadow-2xs">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="font-bubbly text-xs text-[#1e4b3e] uppercase">
+                Shadowfax Portal Form Fields (tsukuri3d.vercel.app)
+              </span>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                Production Ready
+              </span>
+            </div>
+
+            {/* Staging Details */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 block uppercase">
+                1. Staging Details
+              </span>
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-500 font-bold block">Client Push URL *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly
+                    value="https://tsukuri3d.vercel.app/api/webhooks/shadowfax"
+                    className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-mono text-xs text-slate-800 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard('https://tsukuri3d.vercel.app/api/webhooks/shadowfax', 'wh-stage')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    title="Copy Staging Push URL"
+                  >
+                    {copiedKey === 'wh-stage' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-500 font-bold block">Authorisation Present</label>
+                <div className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs text-slate-700 font-bold">
+                  No (or None)
+                </div>
+              </div>
+            </div>
+
+            {/* Production Details */}
+            <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-2">
+              <span className="text-[11px] font-bold text-[#1e4b3e] block uppercase">
+                2. Production Details
+              </span>
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-500 font-bold block">Client Push URL *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly
+                    value="https://tsukuri3d.vercel.app/api/webhooks/shadowfax"
+                    className="w-full px-3 py-1.5 rounded-lg border border-emerald-300 bg-white font-mono text-xs text-slate-800 pr-10 font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard('https://tsukuri3d.vercel.app/api/webhooks/shadowfax', 'wh-prod')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    title="Copy Production Push URL"
+                  >
+                    {copiedKey === 'wh-prod' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-500 font-bold block">Authorisation Present</label>
+                <div className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs text-slate-700 font-bold">
+                  No (or None)
+                </div>
+              </div>
+            </div>
+
+            {/* Integration Type */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+              <span className="text-[11px] font-bold text-slate-700 block uppercase">
+                3. Integration Type *
+              </span>
+              <div className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white font-mono text-xs text-slate-800 font-bold">
+                Forward Logistics (or Forward)
+              </div>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Select <strong>Forward Logistics</strong> (or <strong>Forward / Express</strong> in the dropdown).
+              </p>
             </div>
           </div>
 
