@@ -116,15 +116,16 @@ export function formatIndianDateShort(dateStringOrTimestamp?: string | number | 
 
 export function calculatePaymentAdjustedTotal(
   subtotalINR: number,
-  paymentMethod: 'COD' | 'Online',
+  paymentMethod: 'COD' | 'Online' | 'ApexGateway' | 'UPI_QR',
   discountAmountINR: number = 0
 ): {
   codFee: number;
   onlineDiscount: number;
   finalTotal: number;
 } {
-  const codFee = paymentMethod === 'COD' ? 50 : 0;
-  const onlineDiscount = paymentMethod === 'Online' ? 10 : 0;
+  const isCod = paymentMethod === 'COD';
+  const codFee = isCod ? 50 : 0;
+  const onlineDiscount = !isCod ? 10 : 0;
   const discountedSubtotal = Math.max(0, subtotalINR - discountAmountINR);
   const finalTotal = Math.max(0, discountedSubtotal + codFee - onlineDiscount);
   return { codFee, onlineDiscount, finalTotal };
@@ -609,13 +610,13 @@ export interface StudioSettings {
 }
 
 export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
-  brandName: 'TsuKURI_3D Studio (造り)',
+  brandName: 'Tsukuri3D',
   gstinNumber: '',
   workshopAddress: 'Plot 42, HSR Layout Sector 1, Bengaluru, Karnataka 560102',
   supportEmail: 'commersgyan@gmail.com',
   supportPhone: '+91 98450 33021',
   currency: 'INR (₹)',
-  deliveryPartner: 'BlueDart Surface Express',
+  deliveryPartner: 'Shiprocket Logistics (Channel: Tsukuri3d #12482565)',
   deliveryCharges: 0,
   deliveryEta: '3 to 4 Days Pan-India',
   chargeGst: false,

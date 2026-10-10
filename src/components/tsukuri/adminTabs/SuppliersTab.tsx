@@ -13,11 +13,23 @@ export interface SupplierRecord {
 }
 
 export const SuppliersTab: React.FC = () => {
-  const [suppliers, setSuppliers] = useState<SupplierRecord[]>([
-    { id: 'sup-1', name: 'Kyoto BioPolymer Ltd.', material: 'Bio-Matte PLA & Reclaimed Teak Wood', contactPerson: 'Hiroshi Tanaka', email: 'orders@kyotobiopolymer.jp', phone: '+81 75 321 8900', rating: 4.9, city: 'Kyoto, Japan' },
-    { id: 'sup-2', name: 'PrintMaterials India', material: 'eSUN PETG & ABS Composite Filaments', contactPerson: 'Vikram Mehta', email: 'sales@printmaterials.in', phone: '+91 98200 44122', rating: 4.8, city: 'Mumbai, India' },
-    { id: 'sup-3', name: 'EcoCraft Packaging Solutions', material: 'Origami Bento Recycled Mailers & Cushioning', contactPerson: 'Ananya Roy', email: 'support@ecocraft.in', phone: '+91 80 4123 7789', rating: 4.7, city: 'Bengaluru, India' },
-  ]);
+  const [suppliers, setSuppliers] = useState<SupplierRecord[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_suppliers');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const saveSuppliers = (newSuppliers: SupplierRecord[]) => {
+    setSuppliers(newSuppliers);
+    try {
+      localStorage.setItem('tsukuri_suppliers', JSON.stringify(newSuppliers));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,13 +46,12 @@ export const SuppliersTab: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      setSuppliers((prev) =>
-        prev.map((s) =>
-          s.id === editingId
-            ? { ...s, name, material, contactPerson, email, phone, rating: Number(rating), city }
-            : s
-        )
+      const updated = suppliers.map((s) =>
+        s.id === editingId
+          ? { ...s, name, material, contactPerson, email, phone, rating: Number(rating), city }
+          : s
       );
+      saveSuppliers(updated);
     } else {
       const newSup: SupplierRecord = {
         id: `sup-${Date.now().toString().slice(-4)}`,
@@ -52,7 +63,7 @@ export const SuppliersTab: React.FC = () => {
         rating: Number(rating),
         city,
       };
-      setSuppliers([...suppliers, newSup]);
+      saveSuppliers([...suppliers, newSup]);
     }
     setIsModalOpen(false);
     setEditingId(null);
@@ -71,7 +82,7 @@ export const SuppliersTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setSuppliers((prev) => prev.filter((s) => s.id !== id));
+    saveSuppliers(suppliers.filter((s) => s.id !== id));
   };
 
   const filtered = suppliers.filter(

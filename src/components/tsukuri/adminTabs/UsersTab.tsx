@@ -12,12 +12,26 @@ export interface StudioUser {
 }
 
 export const UsersTab: React.FC = () => {
-  const [users, setUsers] = useState<StudioUser[]>([
-    { id: 'usr-1', name: 'Master TsuKURI', username: 'tsukuri', email: 'master@tsukuri3d.store', role: 'Super Admin', status: 'Active', lastActive: 'Just now' },
-    { id: 'usr-2', name: 'Kenji Sato', username: 'kenji', email: 'kenji@tsukuri3d.store', role: 'Production Lead', status: 'Active', lastActive: '12m ago' },
-    { id: 'usr-3', name: 'Maya Tanaka', username: 'maya', email: 'maya.cad@tsukuri3d.store', role: 'CAD Designer', status: 'Active', lastActive: '2h ago' },
-    { id: 'usr-4', name: 'Aarav Sharma', username: 'aarav', email: 'logistics@tsukuri3d.store', role: 'Fulfillment Agent', status: 'Active', lastActive: 'Yesterday' },
-  ]);
+  const [users, setUsers] = useState<StudioUser[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_admin_users');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      { id: 'usr-1', name: 'Aditya Joshi', username: 'aditya', email: 'commersgyan@gmail.com', role: 'Super Admin', status: 'Active', lastActive: 'Current Session' },
+      { id: 'usr-2', name: 'Anshuman', username: 'anshuman', email: 'sheracleanz@gmail.com', role: 'Super Admin', status: 'Active', lastActive: 'Active Co-Founder' },
+    ];
+  });
+
+  const saveUsers = (newUsers: StudioUser[]) => {
+    setUsers(newUsers);
+    try {
+      localStorage.setItem('tsukuri_admin_users', JSON.stringify(newUsers));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -33,13 +47,12 @@ export const UsersTab: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === editingId
-            ? { ...u, name, username, email, role, status }
-            : u
-        )
+      const updated = users.map((u) =>
+        u.id === editingId
+          ? { ...u, name, username, email, role, status }
+          : u
       );
+      saveUsers(updated);
     } else {
       const newUser: StudioUser = {
         id: `usr-${Date.now()}`,
@@ -50,7 +63,7 @@ export const UsersTab: React.FC = () => {
         status,
         lastActive: 'Just now',
       };
-      setUsers([...users, newUser]);
+      saveUsers([...users, newUser]);
     }
     setIsModalOpen(false);
     setEditingId(null);
@@ -67,12 +80,12 @@ export const UsersTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (id === 'usr-1') {
-      setUserToast('Master admin account cannot be deleted.');
+    if (id === 'usr-1' || id === 'usr-2') {
+      setUserToast('Studio Co-Founder account cannot be deleted.');
       setTimeout(() => setUserToast(''), 3500);
       return;
     }
-    setUsers((prev) => prev.filter((u) => u.id !== id));
+    saveUsers(users.filter((u) => u.id !== id));
   };
 
   const filtered = users.filter(

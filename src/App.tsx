@@ -4,6 +4,7 @@ import { TsukuriAdminPanel } from './components/tsukuri/TsukuriAdminPanel.tsx';
 import { ProductDetailPage } from './components/tsukuri/ProductDetailPage.tsx';
 import { TsukuriCartDrawer } from './components/tsukuri/TsukuriCartDrawer.tsx';
 import { OrderTrackingModal } from './components/tsukuri/OrderTrackingModal.tsx';
+import { OrderSuccessPage } from './components/tsukuri/OrderSuccessPage.tsx';
 import {
   TsukuriProduct,
   INITIAL_TSUKURI_PRODUCTS,
@@ -17,85 +18,158 @@ import {
 } from './lib/firebase.ts';
 
 export const App: React.FC = () => {
+  // Helper to get permanently deleted product IDs
+  const getStoredDeletedIds = (): number[] => {
+    try {
+      const stored = localStorage.getItem('tsukuri_deleted_product_ids');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed.map(Number);
+      }
+    } catch {}
+    return [];
+  };
+
+  // Best Seller product ID (Admin configurable)
+  const [bestSellerProductId, setBestSellerProductId] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_bestseller_product_id');
+      if (stored && !isNaN(Number(stored))) return Number(stored);
+    } catch {}
+    return 1;
+  });
+
+  const handleSelectBestSeller = async (id: number) => {
+    setBestSellerProductId(id);
+    try {
+      localStorage.setItem('tsukuri_bestseller_product_id', String(id));
+      await fetch('/api/tsukuri-products/bestseller', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: id }),
+      });
+    } catch {}
+  };
+
   // Products List State (Managed by Admin CRUD & Cloud Server Sync)
   const [productsList, setProductsList] = useState<TsukuriProduct[]>(() => {
+    const deletedIds = getStoredDeletedIds();
     try {
       const stored = localStorage.getItem('tsukuri_products');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p: any, idx: number) => {
-            if (typeof p.id === 'number' && p.id > 2147483647) {
-              return { ...p, id: (p.id % 90000) + 1000 + idx };
-            }
-            return p;
-          });
+          return parsed
+            .filter((p: any) => !deletedIds.includes(Number(p.id)))
+            .map((p: any, idx: number) => {
+              if (typeof p.id === 'number' && p.id > 2147483647) {
+                return { ...p, id: (p.id % 90000) + 1000 + idx };
+              }
+              return p;
+            });
         }
       }
     } catch {}
-    return INITIAL_TSUKURI_PRODUCTS;
+    return INITIAL_TSUKURI_PRODUCTS.filter((p) => !deletedIds.includes(Number(p.id)));
   });
 
   // Sync products to local storage for persistence across reloads
   useEffect(() => {
+    const deletedIds = getStoredDeletedIds();
+    const clean = productsList.filter((p) => !deletedIds.includes(Number(p.id)));
     try {
-      localStorage.setItem('tsukuri_products', JSON.stringify(productsList));
+      localStorage.setItem('tsukuri_products', JSON.stringify(clean));
     } catch {}
   }, [productsList]);
+
+  // Load bestseller from server
+  useEffect(() => {
+    fetch('/api/tsukuri-products/bestseller')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.productId) {
+          setBestSellerProductId(Number(data.productId));
+          try {
+            localStorage.setItem('tsukuri_bestseller_product_id', String(data.productId));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Real-time Cloud Sync with Firebase Firestore (Works on Vercel, mobile & desktop) + Local Express Fallback
   useEffect(() => {
     let isMounted = true;
+    const deletedIds = getStoredDeletedIds();
 
     // 1. Seed initial products if Firestore is empty so Vercel gets all drops immediately
-    seedProductsIfEmpty(INITIAL_TSUKURI_PRODUCTS).catch(() => {});
+    const seedCandidates = INITIAL_TSUKURI_PRODUCTS.filter((p) => !deletedIds.includes(Number(p.id)));
+    seedProductsIfEmpty(seedCandidates).catch(() => {});
 
     // 2. Real-time Firestore sync (Works across devices, on Vercel, without needing a backend server)
     const unsubscribeFirestore = subscribeToProducts((firestoreProducts) => {
       if (isMounted && Array.isArray(firestoreProducts) && firestoreProducts.length > 0) {
-        setProductsList(firestoreProducts);
+        const currentDeleted = getStoredDeletedIds();
+        const active = firestoreProducts.filter((p) => !currentDeleted.includes(Number(p.id)));
+        setProductsList(active);
         try {
-          localStorage.setItem('tsukuri_products', JSON.stringify(firestoreProducts));
+          localStorage.setItem('tsukuri_products', JSON.stringify(active));
         } catch {}
       }
     });
 
-    // 3. Fallback to local server API or static Vercel JSON endpoint
+    // 3. Fallback to local server API + fetch server-side deleted tombstones
     const loadFromLocalApi = async () => {
+      try {
+        // Fetch deleted product IDs from server to ensure deletions are in sync across devices & reloads
+        const delRes = await fetch('/api/tsukuri-products/deleted-ids');
+        if (delRes.ok) {
+          const serverDeletedIds = await delRes.json();
+          if (Array.isArray(serverDeletedIds) && serverDeletedIds.length > 0) {
+            const currentDeleted = getStoredDeletedIds();
+            const merged = Array.from(new Set([...currentDeleted, ...serverDeletedIds.map(Number)]));
+            try {
+              localStorage.setItem('tsukuri_deleted_product_ids', JSON.stringify(merged));
+            } catch {}
+          }
+        }
+      } catch {}
+
       try {
         const res = await fetch('/api/tsukuri-products');
         if (res.ok) {
           const contentType = res.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
             const serverProducts = await res.json();
-            if (Array.isArray(serverProducts) && serverProducts.length > 0 && isMounted) {
-              setProductsList((prev) => {
+            if (Array.isArray(serverProducts) && isMounted) {
+              const currentDeleted = getStoredDeletedIds();
+              const active = serverProducts.filter((p: any) => !currentDeleted.includes(Number(p.id)));
+              if (active.length > 0) {
+                setProductsList(active);
                 try {
-                  localStorage.setItem('tsukuri_products', JSON.stringify(serverProducts));
+                  localStorage.setItem('tsukuri_products', JSON.stringify(active));
                 } catch {}
-                return serverProducts;
-              });
-              return;
+                return;
+              }
             }
           }
         }
       } catch {}
 
-      // Fallback for Vercel static hosting: fetch static json built into public/data
+      // Fallback for Vercel static hosting: ONLY if localStorage is empty and user never modified catalog
       try {
-        const staticRes = await fetch('/data/tsukuri_products.json');
-        if (staticRes.ok) {
-          const staticProducts = await staticRes.json();
-          if (Array.isArray(staticProducts) && staticProducts.length > 0 && isMounted) {
-            setProductsList((prev) => {
-              if (prev.length === 0 || prev.length < staticProducts.length) {
-                try {
-                  localStorage.setItem('tsukuri_products', JSON.stringify(staticProducts));
-                } catch {}
-                return staticProducts;
-              }
-              return prev;
-            });
+        const stored = localStorage.getItem('tsukuri_products');
+        const hasDeleted = localStorage.getItem('tsukuri_deleted_product_ids');
+        if (!stored && !hasDeleted) {
+          const staticRes = await fetch('/data/tsukuri_products.json');
+          if (staticRes.ok) {
+            const staticProducts = await staticRes.json();
+            if (Array.isArray(staticProducts) && staticProducts.length > 0 && isMounted) {
+              setProductsList(staticProducts);
+              try {
+                localStorage.setItem('tsukuri_products', JSON.stringify(staticProducts));
+              } catch {}
+            }
           }
         }
       } catch {}
@@ -110,10 +184,21 @@ export const App: React.FC = () => {
   }, []);
 
   // Determine initial view from URL path or search query
-  const getInitialView = (): 'storefront' | 'product' | 'admin' => {
+  const getInitialView = (): 'storefront' | 'product' | 'admin' | 'order-success' => {
     if (typeof window === 'undefined') return 'storefront';
     const params = new URLSearchParams(window.location.search);
     const path = window.location.pathname.toLowerCase();
+    
+    // Check for /order-success page (from Apex Live Gateway or UPI QR redirect)
+    if (
+      path === '/order-success' ||
+      path.startsWith('/order-success') ||
+      params.get('checkout') === 'success' ||
+      (params.get('order_id') && (params.get('payment_id') || params.get('utr')))
+    ) {
+      return 'order-success';
+    }
+
     if (params.get('view') === 'admin' || path === '/admin' || window.location.hash === '#admin') {
       return 'admin';
     }
@@ -123,7 +208,16 @@ export const App: React.FC = () => {
     return 'storefront';
   };
 
-  const [viewMode, setViewMode] = useState<'storefront' | 'product' | 'admin'>(getInitialView);
+  const [viewMode, setViewMode] = useState<'storefront' | 'product' | 'admin' | 'order-success'>(getInitialView);
+
+  // Listen to popstate for browser navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setViewMode(getInitialView());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [selectedProduct, setSelectedProduct] = useState<TsukuriProduct>(productsList[0]);
   const [liveVisitors, setLiveVisitors] = useState<number>(14);
 
@@ -250,21 +344,32 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteProduct = async (id: number) => {
-    // Delete immediately (confirmation modal is presented inside TsukuriAdminPanel UI)
+    const idNum = Number(id);
+    // 1. Permanently record as deleted in localStorage tombstone
+    try {
+      const storedDeleted = localStorage.getItem('tsukuri_deleted_product_ids');
+      const delArr: number[] = storedDeleted ? JSON.parse(storedDeleted) : [];
+      if (!delArr.includes(idNum)) {
+        delArr.push(idNum);
+        localStorage.setItem('tsukuri_deleted_product_ids', JSON.stringify(delArr));
+      }
+    } catch {}
+
+    // 2. Filter state and update products localStorage immediately
     setProductsList((prev) => {
-      const updated = prev.filter((p) => p.id !== id);
+      const updated = prev.filter((p) => Number(p.id) !== idNum);
       try {
         localStorage.setItem('tsukuri_products', JSON.stringify(updated));
       } catch {}
       return updated;
     });
 
-    // Delete from Firestore (Real-time cloud database, works on Vercel & mobile!)
-    await deleteProductFromFirestore(id);
+    // 3. Delete from Firestore (Real-time cloud database, works on Vercel & mobile!)
+    await deleteProductFromFirestore(idNum);
 
-    // Also notify local backend if running in fullstack Express
+    // 4. Also notify local backend if running in fullstack Express
     try {
-      await fetch(`/api/tsukuri-products/${id}`, { method: 'DELETE' });
+      await fetch(`/api/tsukuri-products/${idNum}`, { method: 'DELETE' });
     } catch {}
   };
 
@@ -277,6 +382,7 @@ export const App: React.FC = () => {
           onBuyNowDirect={(prod) => handleBuyNow(prod, 1)}
           liveVisitorsCount={liveVisitors}
           productsList={productsList}
+          bestSellerProductId={bestSellerProductId}
         />
       )}
 
@@ -299,6 +405,19 @@ export const App: React.FC = () => {
           onAddProduct={handleAddProduct}
           onUpdateProduct={handleUpdateProduct}
           onDeleteProduct={handleDeleteProduct}
+          bestSellerProductId={bestSellerProductId}
+          onSelectBestSeller={handleSelectBestSeller}
+        />
+      )}
+
+      {viewMode === 'order-success' && (
+        <OrderSuccessPage
+          onBackToStore={handleBackToStore}
+          onOpenTracking={(ordNum, ph) => {
+            if (ordNum) setTrackingOrderNumber(ordNum);
+            if (ph) setTrackingPhone(ph);
+            setIsTrackingModalOpen(true);
+          }}
         />
       )}
 

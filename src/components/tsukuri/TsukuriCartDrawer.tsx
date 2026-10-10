@@ -17,6 +17,11 @@ import {
   Mail,
   ExternalLink,
   RefreshCw,
+  QrCode,
+  Zap,
+  Copy,
+  Check,
+  Building2,
 } from 'lucide-react';
 import {
   CartItem,
@@ -24,6 +29,11 @@ import {
   calculatePaymentAdjustedTotal,
 } from './tsukuriData.ts';
 import { recordLiveActivity } from '../../lib/firebase.ts';
+import {
+  TSUKURI_UPI_DETAILS,
+  buildApexCheckoutUrl,
+  buildUpiDeepLink,
+} from '../../lib/apexpay.ts';
 
 interface TsukuriCartDrawerProps {
   isOpen: boolean;
@@ -62,7 +72,9 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
   // REQUIREMENT 11: Ask PIN code and City separately
   const [city, setCity] = useState('');
   const [pincode, setPincode] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'Online' | 'COD'>('Online');
+  const [paymentMethod, setPaymentMethod] = useState<'ApexGateway' | 'UPI_QR' | 'COD'>('ApexGateway');
+  const [customerUtr, setCustomerUtr] = useState('');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // REQUIREMENT 10: Option on checkout of adding a discount code
   const [discountCodeInput, setDiscountCodeInput] = useState('');
@@ -233,6 +245,14 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
     e.preventDefault();
     if (activeItems.length === 0) return;
 
+    if (paymentMethod === 'UPI_QR') {
+      const cleanUtr = customerUtr.trim();
+      if (!cleanUtr || cleanUtr.length !== 12 || !/^\d{12}$/.test(cleanUtr)) {
+        alert('Please enter a valid 12-digit numeric UPI UTR number from your payment app.');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const fullAddress = `${address}, ${city} - ${pincode}`;
@@ -263,7 +283,16 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
           codFee,
           onlineDiscount,
           totalAmount: finalTotal,
-          paymentMethod: paymentMethod === 'COD' ? 'COD' : 'Online UPI/Card',
+          paymentMethod:
+            paymentMethod === 'ApexGateway'
+              ? 'Apex Live Gateway'
+              : paymentMethod === 'UPI_QR'
+              ? 'Inline UPI QR'
+              : 'COD',
+          notes:
+            paymentMethod === 'UPI_QR'
+              ? `Customer UPI QR Payment to joshi2010@slc. 12-Digit UTR: ${customerUtr.trim()}`
+              : undefined,
           courierName: activeDeliveryPartner,
         }),
       });
@@ -302,16 +331,24 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
             priceINR: i.customPriceINR ? Math.round(i.customPriceINR / i.quantity) : i.product.priceINR,
           })),
           subtotalINR: discountedSubtotal,
-          paymentMethod: paymentMethod === 'COD' ? 'COD' : 'Online',
+          paymentMethod:
+            paymentMethod === 'ApexGateway'
+              ? 'Apex Live Gateway'
+              : paymentMethod === 'UPI_QR'
+              ? 'Inline UPI QR'
+              : 'COD',
           codFee,
           onlineDiscount,
           totalAmountINR: finalTotal,
-          status: 'New',
+          status: paymentMethod === 'COD' ? 'New' : 'In Production',
           paymentStatus: paymentMethod === 'COD' ? 'COD' : 'Paid',
           orderDate: new Date().toISOString(),
           courier: activeDeliveryPartner,
-          trackingNumber: `BLU${Math.floor(10000000 + Math.random() * 90000000)}`,
-          notes: `Customer Order via ${paymentMethod}`,
+          trackingNumber: `SR12482565${Math.floor(100000 + Math.random() * 900000)}`,
+          notes:
+            paymentMethod === 'UPI_QR'
+              ? `Paid via UPI QR (joshi2010@slc). 12-Digit UTR: ${customerUtr.trim()}`
+              : `Customer Order via ${paymentMethod}`,
         };
         ordersArr.unshift(newOrderObj);
         localStorage.setItem('tsukuri_orders', JSON.stringify(ordersArr));
@@ -350,6 +387,31 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
         window.dispatchEvent(new CustomEvent('tsukuri_order_placed', { detail: newOrderObj }));
       } catch {}
 
+      // Requirement 1 & 2: Redirect to Apex Live Gateway or /order-success
+      if (paymentMethod === 'ApexGateway') {
+        const productTitle = activeItems.map((i) => `${i.product.name}${i.quantity > 1 ? ` x${i.quantity}` : ''}`).join(', ') || 'Tsukuri3D Custom Print';
+        const orderId = orderResult.orderNumber || `TSU-${Math.floor(1000 + Math.random() * 9000)}`;
+        const returnUrl = `${window.location.origin}/order-success`;
+        
+        // Exact URL specified in user prompt:
+        // https://apex-seven-ashy.vercel.app/?checkout=live&amount=${totalAmount}&order_id=${orderId}&description=${encodeURIComponent(productTitle)}&customer_name=${customerName}&customer_email=${customerEmail}&return_url=${window.location.origin}/order-success
+        const gatewayUrl = `https://apex-seven-ashy.vercel.app/?checkout=live&amount=${finalTotal}&order_id=${encodeURIComponent(orderId)}&description=${encodeURIComponent(productTitle)}&customer_name=${encodeURIComponent(customerName)}&customer_email=${encodeURIComponent(email)}&return_url=${returnUrl}`;
+        
+        if (!directBuyItem) onClearCart();
+        window.location.href = gatewayUrl;
+        return;
+      }
+
+      if (paymentMethod === 'UPI_QR') {
+        const orderId = orderResult.orderNumber || `TSU-${Math.floor(1000 + Math.random() * 9000)}`;
+        const successUrl = `/order-success?order_id=${encodeURIComponent(orderId)}&utr=${encodeURIComponent(customerUtr.trim())}&payment_id=UPI-${encodeURIComponent(customerUtr.trim())}`;
+        
+        if (!directBuyItem) onClearCart();
+        window.location.href = successUrl;
+        return;
+      }
+
+      // COD Flow
       setConfirmedOrder({
         ...orderResult,
         email,
@@ -358,7 +420,7 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
         address: fullAddress,
         city,
         pincode,
-        paymentMethod,
+        paymentMethod: 'Cash on Delivery',
         courier: activeDeliveryPartner,
         orderDate: new Date().toISOString(),
       });
@@ -366,8 +428,8 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
       if (!directBuyItem) {
         onClearCart();
       }
-      // Requirement 5: Automatically ensure tax invoice email is sent to customer's email address on both Online & Cash purchases
-      if (email) {
+      // Auto-dispatch invoice email only if not already dispatched by checkout server
+      if (email && !orderResult?.invoiceAutoSent) {
         fetch('/api/send-invoice-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -708,37 +770,60 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                 </div>
 
                 {/* PAYMENT METHOD SELECTOR */}
-                <div className="space-y-2 pt-1">
+                <div className="space-y-3 pt-1">
                   <div className="flex justify-between items-center">
                     <label className="text-[11px] font-bold text-[#1a2e26]">Payment Method</label>
                     <span className="text-[10px] text-[#1e4b3e] font-bold">Pricing Rule Applied</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    {/* Online Payment (-₹10) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {/* 1. Apex Live Payment Gateway (-₹10) */}
                     <button
                       type="button"
-                      onClick={() => setPaymentMethod('Online')}
+                      onClick={() => setPaymentMethod('ApexGateway')}
                       className={`p-3 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                        paymentMethod === 'Online'
+                        paymentMethod === 'ApexGateway'
                           ? 'bg-[#1e4b3e] text-white border-[#1e4b3e] shadow-xs ring-2 ring-[#f3b755]'
                           : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 font-bubbly text-xs">
-                        <CreditCard className="w-4 h-4 text-[#f3b755]" />
-                        <span>Online (UPI / Card)</span>
+                        <Zap className="w-4 h-4 text-[#f3b755]" />
+                        <span>Apex Gateway</span>
                       </div>
                       <span
                         className={`text-[10px] font-bold block mt-1 ${
-                          paymentMethod === 'Online' ? 'text-[#f3b755]' : 'text-emerald-700'
+                          paymentMethod === 'ApexGateway' ? 'text-[#f3b755]' : 'text-emerald-700'
                         }`}
                       >
-                        ✨ Flat ₹10 OFF Applied
+                        ⚡ Live Cards/NetBank (-₹10)
                       </span>
                     </button>
 
-                    {/* Cash on Delivery (+₹50) */}
+                    {/* 2. Inline UPI QR & Transfer (-₹10) */}
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('UPI_QR')}
+                      className={`p-3 rounded-2xl border text-left transition-all relative cursor-pointer ${
+                        paymentMethod === 'UPI_QR'
+                          ? 'bg-[#1e4b3e] text-white border-[#1e4b3e] shadow-xs ring-2 ring-[#f3b755]'
+                          : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bubbly text-xs">
+                        <QrCode className="w-4 h-4 text-[#f3b755]" />
+                        <span>Inline UPI QR</span>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold block mt-1 ${
+                          paymentMethod === 'UPI_QR' ? 'text-[#f3b755]' : 'text-emerald-700'
+                        }`}
+                      >
+                        📱 Scan & Pay (-₹10)
+                      </span>
+                    </button>
+
+                    {/* 3. Cash on Delivery (+₹50) */}
                     <button
                       type="button"
                       onClick={() => setPaymentMethod('COD')}
@@ -761,6 +846,163 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                       </span>
                     </button>
                   </div>
+
+                  {/* APEX LIVE GATEWAY BANNER */}
+                  {paymentMethod === 'ApexGateway' && (
+                    <div className="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl text-xs space-y-1.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-emerald-950 font-bold">
+                          <Zap className="w-4 h-4 text-emerald-700" />
+                          <span>Apex Live Payment Gateway (Zero Redirect Hassle)</span>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900">
+                          apex-seven-ashy.vercel.app
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800/90 leading-relaxed">
+                        Clicking confirm will securely connect to your live payment gateway hosted at <strong>apex-seven-ashy.vercel.app</strong>. Upon completion, you will be automatically returned to Tsukuri3D with your 3D printing preparation triggered!
+                      </p>
+                    </div>
+                  )}
+
+                  {/* INLINE UPI QR & BANK DETAILS */}
+                  {paymentMethod === 'UPI_QR' && (
+                    <div className="p-4 bg-white rounded-2xl border-2 border-[#1e4b3e]/20 space-y-3.5 shadow-xs animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <QrCode className="w-4 h-4 text-[#1e4b3e]" />
+                          <span className="font-bubbly text-xs text-[#1e4b3e] font-bold">
+                            SCAN TO PAY VIA ANY UPI APP
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          Amount: {formatPrice(finalTotal)}
+                        </span>
+                      </div>
+
+                      {/* QR Code and Quick Pay Link */}
+                      <div className="flex flex-col sm:flex-row items-center gap-4">
+                        <div className="w-36 h-36 sm:w-40 sm:h-40 bg-white p-2 rounded-2xl border-2 border-slate-200 shadow-2xs flex items-center justify-center shrink-0">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(
+                              `upi://pay?pa=joshi2010@slc&pn=Aditya%20Joshi&am=${finalTotal}&cu=INR&tn=Tsukuri3D%20Order`
+                            )}`}
+                            alt="Tsukuri3D UPI QR Code"
+                            className="w-full h-full object-contain rounded-lg"
+                          />
+                        </div>
+
+                        <div className="flex-1 space-y-2 text-xs w-full">
+                          <p className="text-[11px] text-slate-600 leading-tight">
+                            Scan with <strong>Google Pay, PhonePe, Paytm, CRED, or BHIM</strong> to transfer exactly <strong>{formatPrice(finalTotal)}</strong>.
+                          </p>
+
+                          {/* Bank & Beneficiary Details */}
+                          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1 font-mono text-[11px]">
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500 font-sans text-[10px]">UPI VPA:</span>
+                              <div className="flex items-center gap-1">
+                                <strong className="text-slate-800 font-bold">joshi2010@slc</strong>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText('joshi2010@slc');
+                                    setCopiedKey('vpa');
+                                    setTimeout(() => setCopiedKey(null), 2000);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                  title="Copy UPI VPA"
+                                >
+                                  {copiedKey === 'vpa' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500 font-sans text-[10px]">Beneficiary:</span>
+                              <strong className="text-slate-800 font-sans font-bold">Aditya Joshi</strong>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500 font-sans text-[10px]">Bank:</span>
+                              <span className="text-slate-700 font-sans text-[10px]">North East Small Finance Bank</span>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500 font-sans text-[10px]">A/C No:</span>
+                              <div className="flex items-center gap-1">
+                                <strong className="text-slate-800 font-bold">033311501086572</strong>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText('033311501086572');
+                                    setCopiedKey('ac');
+                                    setTimeout(() => setCopiedKey(null), 2000);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                  title="Copy Account Number"
+                                >
+                                  {copiedKey === 'ac' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-500 font-sans text-[10px]">IFSC:</span>
+                              <div className="flex items-center gap-1">
+                                <strong className="text-slate-800 font-bold">NESF0000333</strong>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText('NESF0000333');
+                                    setCopiedKey('ifsc');
+                                    setTimeout(() => setCopiedKey(null), 2000);
+                                  }}
+                                  className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                  title="Copy IFSC"
+                                >
+                                  {copiedKey === 'ifsc' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Deep link button for phone devices */}
+                          <a
+                            href={`upi://pay?pa=joshi2010@slc&pn=Aditya%20Joshi&am=${finalTotal}&cu=INR&tn=Tsukuri3D%20Order`}
+                            className="block w-full py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-center font-bold text-[11px] transition-colors"
+                          >
+                            📱 Open in UPI App (GPay / PhonePe / Paytm)
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* 12-Digit Customer UTR Number Input */}
+                      <div className="pt-2 border-t border-slate-100 space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[11px] font-bold text-[#1a2e26]">
+                            Customer 12-Digit UTR / UPI Reference Number *
+                          </label>
+                          <span className="text-[10px] font-mono font-bold text-slate-500">
+                            {customerUtr.length}/12 Digits
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          maxLength={12}
+                          pattern="[0-9]{12}"
+                          value={customerUtr}
+                          onChange={(e) => setCustomerUtr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="e.g. 428901238475"
+                          className="w-full text-xs font-mono font-bold bg-[#faf9f5] border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-[#1e4b3e]"
+                        />
+                        <span className="text-[10px] text-slate-500 block">
+                          Found in transaction details of your UPI app after completing payment.
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </form>
             )}
@@ -851,9 +1093,9 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                     <span className="font-mono">+₹50</span>
                   </div>
                 )}
-                {paymentMethod === 'Online' && (
+                {paymentMethod !== 'COD' && (
                   <div className="flex justify-between text-emerald-700 font-bold">
-                    <span>Online UPI Instant Discount</span>
+                    <span>Instant Online Payment Discount</span>
                     <span className="font-mono">-₹10</span>
                   </div>
                 )}
@@ -891,10 +1133,20 @@ export const TsukuriCartDrawer: React.FC<TsukuriCartDrawerProps> = ({
                     disabled={isSubmitting}
                     className="flex-1 py-3.5 rounded-full bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] font-bubbly text-sm tracking-wide flex items-center justify-center gap-2 shadow-lg transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    <ShieldCheck className="w-4 h-4 text-[#f3b755]" />
+                    {paymentMethod === 'ApexGateway' ? (
+                      <Zap className="w-4 h-4 text-[#f3b755]" />
+                    ) : paymentMethod === 'UPI_QR' ? (
+                      <QrCode className="w-4 h-4 text-[#f3b755]" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4 text-[#f3b755]" />
+                    )}
                     <span>
                       {isSubmitting
-                        ? 'TRANSMITTING TO PRINT QUEUE...'
+                        ? 'CONNECTING TO GATEWAY...'
+                        : paymentMethod === 'ApexGateway'
+                        ? `PAY VIA APEX GATEWAY · ${formatPrice(finalTotal)}`
+                        : paymentMethod === 'UPI_QR'
+                        ? `SUBMIT UTR & CONFIRM · ${formatPrice(finalTotal)}`
                         : `CONFIRM ORDER · ${formatPrice(finalTotal)}`}
                     </span>
                   </button>

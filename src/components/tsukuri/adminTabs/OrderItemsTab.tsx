@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit, CheckSquare, Search } from 'lucide-react';
 import { formatPrice } from '../tsukuriData.ts';
 
@@ -36,15 +36,30 @@ export const OrderItemsTab: React.FC<OrderItemsTabProps> = ({ ordersList }) => {
         });
       }
     });
-    if (list.length === 0) {
-      list.push(
-        { id: 'item-1', orderNumber: 'TSU-1001', productName: 'Zen Wave Planter v4', sku: 'TSU-ZEN-01', quantity: 2, unitPriceINR: 599, filamentGramsUsed: 170, printTimeMinutes: 240 },
-        { id: 'item-2', orderNumber: 'TSU-1002', productName: 'Torii Headphone Rest', sku: 'TSU-TORII-02', quantity: 1, unitPriceINR: 1299, filamentGramsUsed: 220, printTimeMinutes: 360 },
-        { id: 'item-3', orderNumber: 'TSU-1003', productName: 'Artisan Matcha Keycaps (Set of 4)', sku: 'TSU-KEY-03', quantity: 1, unitPriceINR: 799, filamentGramsUsed: 35, printTimeMinutes: 90 }
-      );
-    }
     return list;
   });
+
+  // Sync when ordersList changes
+  useEffect(() => {
+    const list: OrderLineItem[] = [];
+    ordersList.forEach((ord) => {
+      if (ord.items && ord.items.length > 0) {
+        ord.items.forEach((it: any, idx: number) => {
+          list.push({
+            id: `item-${ord.id}-${idx}`,
+            orderNumber: ord.orderNumber,
+            productName: it.name || '3D Printed Object',
+            sku: `TSU-${ord.id}-${idx + 1}`,
+            quantity: it.quantity || 1,
+            unitPriceINR: it.priceINR || 599,
+            filamentGramsUsed: (it.quantity || 1) * 85,
+            printTimeMinutes: (it.quantity || 1) * 120,
+          });
+        });
+      }
+    });
+    setItems(list);
+  }, [ordersList]);
 
   const [search, setSearch] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);

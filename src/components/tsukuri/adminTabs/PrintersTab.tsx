@@ -16,47 +16,23 @@ export interface PrinterUnit {
 }
 
 export const PrintersTab: React.FC = () => {
-  const [printers, setPrinters] = useState<PrinterUnit[]>([
-    {
-      id: 'pr-01',
-      name: 'Kyoto-1 (Bambu X1C)',
-      model: 'Bambu Lab X1-Carbon AMS',
-      status: 'Printing',
-      bedTemp: 55,
-      nozzleTemp: 215,
-      totalPrintHours: 412,
-      maintenanceDueHours: 88,
-      currentJobName: 'Zen_Wave_Planter_v4.gcode',
-      progressPercent: 78,
-      filamentUsedGrams: 165,
-    },
-    {
-      id: 'pr-02',
-      name: 'Kyoto-2 (Bambu X1C)',
-      model: 'Bambu Lab X1-Carbon AMS',
-      status: 'Printing',
-      bedTemp: 60,
-      nozzleTemp: 220,
-      totalPrintHours: 285,
-      maintenanceDueHours: 215,
-      currentJobName: 'Matcha_Keycaps_Batch3.gcode',
-      progressPercent: 91,
-      filamentUsedGrams: 35,
-    },
-    {
-      id: 'pr-03',
-      name: 'Nusantara-1 (Prusa MK4)',
-      model: 'Original Prusa MK4 Nextruder',
-      status: 'Idle',
-      bedTemp: 24,
-      nozzleTemp: 25,
-      totalPrintHours: 540,
-      maintenanceDueHours: 60,
-      currentJobName: 'Standby for queue',
-      progressPercent: 0,
-      filamentUsedGrams: 0,
-    },
-  ]);
+  const [printers, setPrinters] = useState<PrinterUnit[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_printers');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const savePrinters = (newPrinters: PrinterUnit[]) => {
+    setPrinters(newPrinters);
+    try {
+      localStorage.setItem('tsukuri_printers', JSON.stringify(newPrinters));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -73,22 +49,21 @@ export const PrintersTab: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      setPrinters((prev) =>
-        prev.map((pr) =>
-          pr.id === editingId
-            ? {
-                ...pr,
-                name,
-                model,
-                status,
-                bedTemp: Number(bedTemp),
-                nozzleTemp: Number(nozzleTemp),
-                totalPrintHours: Number(totalHours),
-                maintenanceDueHours: Number(maintHours),
-              }
-            : pr
-        )
+      const updated = printers.map((pr) =>
+        pr.id === editingId
+          ? {
+              ...pr,
+              name,
+              model,
+              status,
+              bedTemp: Number(bedTemp),
+              nozzleTemp: Number(nozzleTemp),
+              totalPrintHours: Number(totalHours),
+              maintenanceDueHours: Number(maintHours),
+            }
+          : pr
       );
+      savePrinters(updated);
     } else {
       const newPrinter: PrinterUnit = {
         id: `pr-${Date.now().toString().slice(-4)}`,
@@ -103,7 +78,7 @@ export const PrintersTab: React.FC = () => {
         progressPercent: 0,
         filamentUsedGrams: 0,
       };
-      setPrinters([...printers, newPrinter]);
+      savePrinters([...printers, newPrinter]);
     }
     setIsModalOpen(false);
     setEditingId(null);
@@ -122,20 +97,19 @@ export const PrintersTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setPrinters((prev) => prev.filter((pr) => pr.id !== id));
+    savePrinters(printers.filter((pr) => pr.id !== id));
   };
 
   const handleToggleStatus = (id: string) => {
-    setPrinters((prev) =>
-      prev.map((pr) =>
-        pr.id === id
-          ? {
-              ...pr,
-              status: pr.status === 'Printing' ? 'Idle' : 'Printing',
-            }
-          : pr
-      )
+    const updated = printers.map((pr) =>
+      pr.id === id
+        ? {
+            ...pr,
+            status: pr.status === 'Printing' ? ('Idle' as const) : ('Printing' as const),
+          }
+        : pr
     );
+    savePrinters(updated);
   };
 
   const filtered = printers.filter(

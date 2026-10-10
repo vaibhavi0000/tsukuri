@@ -16,13 +16,23 @@ export interface ProductVariant {
 }
 
 export const ProductVariantsTab: React.FC = () => {
-  const [variants, setVariants] = useState<ProductVariant[]>([
-    { id: 'var-1', productId: 1, productName: 'Zen Wave Planter v4', variantName: 'Matte Matcha Green', size: 'Medium (140mm)', colorName: 'Matcha Green', colorHex: '#607d64', priceDeltaINR: 0, stock: 24, status: 'In Stock' },
-    { id: 'var-2', productId: 1, productName: 'Zen Wave Planter v4', variantName: 'Terracotta Matte', size: 'Large (180mm)', colorName: 'Terracotta', colorHex: '#ea8f5a', priceDeltaINR: 200, stock: 8, status: 'Low Stock' },
-    { id: 'var-3', productId: 2, productName: 'Torii Headphone Rest', variantName: 'Teak Wood Composite', size: 'Standard (240mm)', colorName: 'Teak Brown', colorHex: '#8b5a2b', priceDeltaINR: 0, stock: 15, status: 'In Stock' },
-    { id: 'var-4', productId: 2, productName: 'Torii Headphone Rest', variantName: 'Silk Obsidian Black', size: 'Standard (240mm)', colorName: 'Obsidian Black', colorHex: '#1a1a1a', priceDeltaINR: 100, stock: 4, status: 'Low Stock' },
-    { id: 'var-5', productId: 3, productName: 'Artisan Matcha Keycaps', variantName: 'Cherry MX - Set of 4', size: '1u Profile', colorName: 'Matcha Silk', colorHex: '#607d64', priceDeltaINR: 0, stock: 32, status: 'In Stock' },
-  ]);
+  const [variants, setVariants] = useState<ProductVariant[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_product_variants');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const saveVariants = (newVariants: ProductVariant[]) => {
+    setVariants(newVariants);
+    try {
+      localStorage.setItem('tsukuri_product_variants', JSON.stringify(newVariants));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -39,26 +49,25 @@ export const ProductVariantsTab: React.FC = () => {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    const statusVal = stock <= 0 ? 'Out of Stock' : stock <= 5 ? 'Low Stock' : 'In Stock';
+    const statusVal: 'In Stock' | 'Low Stock' | 'Out of Stock' = stock <= 0 ? 'Out of Stock' : stock <= 5 ? 'Low Stock' : 'In Stock';
 
     if (editingId) {
-      setVariants((prev) =>
-        prev.map((v) =>
-          v.id === editingId
-            ? {
-                ...v,
-                productName: prodName,
-                variantName: varName,
-                size,
-                colorName,
-                colorHex,
-                priceDeltaINR: Number(priceDelta),
-                stock: Number(stock),
-                status: statusVal,
-              }
-            : v
-        )
+      const updated = variants.map((v) =>
+        v.id === editingId
+          ? {
+              ...v,
+              productName: prodName,
+              variantName: varName,
+              size,
+              colorName,
+              colorHex,
+              priceDeltaINR: Number(priceDelta),
+              stock: Number(stock),
+              status: statusVal,
+            }
+          : v
       );
+      saveVariants(updated);
     } else {
       const newVar: ProductVariant = {
         id: `var-${Date.now()}`,
@@ -72,7 +81,7 @@ export const ProductVariantsTab: React.FC = () => {
         stock: Number(stock),
         status: statusVal,
       };
-      setVariants([newVar, ...variants]);
+      saveVariants([newVar, ...variants]);
     }
     setIsModalOpen(false);
     setEditingId(null);
@@ -91,7 +100,7 @@ export const ProductVariantsTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setVariants((prev) => prev.filter((v) => v.id !== id));
+    saveVariants(variants.filter((v) => v.id !== id));
   };
 
   const filtered = variants.filter(

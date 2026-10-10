@@ -1,0 +1,29 @@
+[
+  {
+    "awb": "SR12482565898554",
+    "orderNumber": "TSU-7143",
+    "status": "Manifested",
+    "location": "Tsukuri3D ",
+    "message": "Shiprocket AWB assigned for Channel: Tsukuri3d (12482565). Enter credentials in Admin to push live.",
+    "timestamp": "2026-10-09T07:22:25.184Z",
+    "id": "scan-1791530545184-372"
+  },
+  {
+    "awb": "SR12482565141648",
+    "orderNumber": "TSU-9494",
+    "status": "Manifested",
+    "location": "Tsukuri3D ",
+    "message": "Shiprocket AWB assigned for Channel: Tsukuri3d (12482565). Enter credentials in Admin to push live.",
+    "timestamp": "2026-10-09T06:26:04.288Z",
+    "id": "scan-1791527164288-935"
+  },
+  {
+    "awb": "SR12482565131433",
+    "orderNumber": "TSU-9494",
+    "status": "Manifested",
+    "location": "Tsukuri3D Primary Workshop",
+    "message": "Shiprocket AWB assigned for Channel: Tsukuri3d (12482565). Enter credentials in Admin to push live.",
+    "timestamp": "2026-10-09T06:19:51.061Z",
+    "id": "scan-1791526791061-178"
+  }
+]

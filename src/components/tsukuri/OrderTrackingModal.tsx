@@ -33,6 +33,7 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [trackedOrder, setTrackedOrder] = useState<WorkshopOrder | null>(null);
+  const [liveScans, setLiveScans] = useState<Array<{ id: string; status: string; location: string; timestamp: string; message: string }>>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
@@ -141,9 +142,23 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
 
       if (found) {
         setTrackedOrder(found);
+        // Fetch live webhook scans if available
+        try {
+          const scanId = found.trackingNumber || found.orderNumber;
+          if (scanId) {
+            const scansRes = await fetch(`/api/shiprocket/scans/${encodeURIComponent(scanId)}`);
+            if (scansRes.ok) {
+              const scansData = await scansRes.json();
+              if (Array.isArray(scansData)) {
+                setLiveScans(scansData);
+              }
+            }
+          }
+        } catch {}
       } else {
         setErrorMsg('No matching order found for this Order ID and Phone Number combination. Please verify your details.');
         setTrackedOrder(null);
+        setLiveScans([]);
       }
       setSearched(true);
     } catch (err) {
@@ -301,16 +316,68 @@ export const OrderTrackingModal: React.FC<OrderTrackingModalProps> = ({
               <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between text-xs text-slate-700 gap-2">
                 <div>
                   <span className="text-slate-400">Logistics Partner:</span>{' '}
-                  <strong className="text-[#1a2e26]">{trackedOrder.courier || 'BlueDart Surface Express'}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400">AWB Tracking No:</span>{' '}
-                  <span className="font-mono font-bold text-[#1e4b3e] bg-[#e8ece1] px-2 py-0.5 rounded-md">
-                    {trackedOrder.trackingNumber || 'Dispatched soon'}
+                  <strong className="text-[#1a2e26]">{trackedOrder.courier || 'Shiprocket Logistics (Channel: Tsukuri3d)'}</strong>
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                    ⚡ Shiprocket Channel 12482565
                   </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <span className="text-slate-400">AWB Tracking No:</span>{' '}
+                    <span className="font-mono font-bold text-[#1e4b3e] bg-[#e8ece1] px-2 py-0.5 rounded-md">
+                      {trackedOrder.trackingNumber || 'Dispatched soon'}
+                    </span>
+                  </div>
+
+                  {trackedOrder.trackingNumber && (
+                    <a
+                      href={`https://shiprocket.co//tracking/${encodeURIComponent(trackedOrder.trackingNumber)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 rounded-lg bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Open live shipment status on Shiprocket tracking portal"
+                    >
+                      <span>Track on Shiprocket</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
+
+            {/* Live Shiprocket Checkpoints Timeline (if webhook scans received) */}
+            {liveScans.length > 0 && (
+              <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-emerald-800" />
+                    <h4 className="font-bubbly text-xs text-emerald-950 uppercase tracking-wider">
+                      LIVE SHIPROCKET COURIER CHECKPOINTS ({liveScans.length})
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                    Shiprocket Channel 12482565
+                  </span>
+                </div>
+
+                <div className="relative pl-5 space-y-3 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-amber-300">
+                  {liveScans.map((scan, sIdx) => (
+                    <div key={scan.id || sIdx} className="relative">
+                      <div className="absolute -left-5 top-1 w-2.5 h-2.5 rounded-full bg-amber-600 ring-2 ring-white" />
+                      <div className="text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-[#1a2e26]">{scan.status}</span>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {new Date(scan.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600">{scan.location} - {scan.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Visual Tracking Progress Timeline */}
             <div className="p-4 bg-[#e8ece1]/40 rounded-2xl border border-slate-200 space-y-3">

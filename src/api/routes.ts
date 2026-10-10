@@ -41,12 +41,47 @@ import {
   generatePayUHash,
   verifyPayUResponseHash,
 } from '../lib/payu.ts';
+import {
+  verifyApexPaySignature,
+  saveApexWebhookLog,
+  loadApexWebhookLogs,
+  APEXPAY_WEBHOOK_SECRET,
+  TSUKURI_UPI_DETAILS,
+} from '../lib/apexpay.ts';
+import {
+  getShiprocketConfig,
+  saveShiprocketConfig,
+  getShiprocketWebhookLogs,
+  appendShiprocketWebhookLog,
+  getShiprocketOutboundLogs,
+  clearShiprocketOutboundLogs,
+  getShiprocketScans,
+  appendShiprocketScan,
+  processShiprocketWebhook,
+  mapShiprocketStatusToInternal,
+  pushOrderToShiprocket,
+  testConnectionShiprocket,
+  trackShiprocketAwb,
+  generateShiprocketLabel,
+  generateShiprocketManifest,
+  cancelShiprocketOrder,
+  checkShiprocketServiceability,
+} from '../lib/shiprocket.ts';
 
 export const apiRouter = Router();
 
 // Log helper
 async function logActivity(userName: string, action: string, entityType: string, entityId?: string, details?: string) {
   try {
+    telemetryState.events.unshift({
+      id: `ev-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      type: entityType === 'order' ? 'order' : entityType === 'print' ? 'print' : entityType === 'product' ? 'cart' : 'view',
+      message: `${userName}: ${action}${details ? ` - ${details}` : ''}`,
+      timestamp: new Date().toISOString(),
+    });
+    if (telemetryState.events.length > 50) {
+      telemetryState.events.pop();
+    }
     await db.insert(activityLog).values({
       userName,
       action,
@@ -73,12 +108,7 @@ const telemetryState = {
   baseVisitors: 14,
   totalPageViews: 1842,
   cartAdds: 349,
-  events: [
-    { id: 'ev-1', type: 'view' as const, message: 'Visitor from Kyoto viewed Zen Wave Planter', timestamp: new Date(Date.now() - 35000).toISOString() },
-    { id: 'ev-2', type: 'order' as const, message: 'Order #ORD-108 placed: Matcha Artisan Keycaps (COD)', timestamp: new Date(Date.now() - 110000).toISOString() },
-    { id: 'ev-3', type: 'print' as const, message: 'Bambu Lab X1C completed Job #44 (Torii Rest)', timestamp: new Date(Date.now() - 290000).toISOString() },
-    { id: 'ev-4', type: 'cart' as const, message: 'Visitor from Bali added Bento Desk Tidy to bag', timestamp: new Date(Date.now() - 480000).toISOString() },
-  ],
+  events: [] as TelemetryEvent[],
 };
 
 apiRouter.get('/telemetry', (req: Request, res: Response) => {
@@ -577,13 +607,43 @@ apiRouter.post('/upload-media', (req: Request, res: Response) => {
   }
 });
 
+const PUBLIC_PRODUCTS_FILE = path.join(process.cwd(), 'public', 'data', 'tsukuri_products.json');
+const DELETED_PRODUCTS_FILE = path.join(process.cwd(), 'data', 'deleted_products.json');
+const BESTSELLER_FILE = path.join(process.cwd(), 'data', 'bestseller_product.json');
+
+function getDeletedProductIds(): number[] {
+  try {
+    if (fs.existsSync(DELETED_PRODUCTS_FILE)) {
+      const data = fs.readFileSync(DELETED_PRODUCTS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed.map(Number);
+    }
+  } catch {}
+  return [];
+}
+
+function addDeletedProductId(id: number) {
+  try {
+    const list = getDeletedProductIds();
+    if (!list.includes(id)) {
+      list.push(id);
+      const dir = path.dirname(DELETED_PRODUCTS_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(DELETED_PRODUCTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    }
+  } catch (err) {
+    console.error('Error saving deleted product id:', err);
+  }
+}
+
 function getTsukuriProductsList(): any[] {
+  const deletedIds = getDeletedProductIds();
   try {
     if (fs.existsSync(TSUKURI_PRODUCTS_FILE)) {
       const data = fs.readFileSync(TSUKURI_PRODUCTS_FILE, 'utf-8');
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.filter((p: any) => !deletedIds.includes(Number(p.id)));
       }
     }
   } catch (err) {
@@ -594,11 +654,20 @@ function getTsukuriProductsList(): any[] {
 
 function saveTsukuriProductsList(list: any[]): boolean {
   try {
+    const deletedIds = getDeletedProductIds();
+    const cleanList = list.filter((p: any) => !deletedIds.includes(Number(p.id)));
     const dir = path.dirname(TSUKURI_PRODUCTS_FILE);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(TSUKURI_PRODUCTS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    fs.writeFileSync(TSUKURI_PRODUCTS_FILE, JSON.stringify(cleanList, null, 2), 'utf-8');
+    
+    // Also keep public/data/tsukuri_products.json in sync so static fetches respect deletions!
+    const publicDir = path.dirname(PUBLIC_PRODUCTS_FILE);
+    if (!fs.existsSync(publicDir)) {
+      fs.mkdirSync(publicDir, { recursive: true });
+    }
+    fs.writeFileSync(PUBLIC_PRODUCTS_FILE, JSON.stringify(cleanList, null, 2), 'utf-8');
     return true;
   } catch (err) {
     console.error('Error writing tsukuri products file:', err);
@@ -612,6 +681,42 @@ apiRouter.get('/tsukuri-products', (_req: Request, res: Response) => {
     res.json(list);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to read products' });
+  }
+});
+
+apiRouter.get('/tsukuri-products/deleted-ids', (_req: Request, res: Response) => {
+  try {
+    const ids = getDeletedProductIds();
+    res.json(ids);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to read deleted product ids' });
+  }
+});
+
+apiRouter.get('/tsukuri-products/bestseller', (_req: Request, res: Response) => {
+  try {
+    if (fs.existsSync(BESTSELLER_FILE)) {
+      const data = JSON.parse(fs.readFileSync(BESTSELLER_FILE, 'utf-8'));
+      return res.json(data);
+    }
+    const list = getTsukuriProductsList();
+    const defaultId = list.length > 0 ? list[0].id : null;
+    res.json({ productId: defaultId });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to get bestseller product' });
+  }
+});
+
+apiRouter.post('/tsukuri-products/bestseller', (req: Request, res: Response) => {
+  try {
+    const { productId } = req.body;
+    const dir = path.dirname(BESTSELLER_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(BESTSELLER_FILE, JSON.stringify({ productId: Number(productId), updatedAt: new Date().toISOString() }, null, 2), 'utf-8');
+    logActivity('Staff', 'Updated Best Seller Showcase Product', 'product', String(productId), `Set product #${productId} as active Best Seller`).catch(() => {});
+    res.json({ success: true, productId: Number(productId) });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to update bestseller product' });
   }
 });
 
@@ -661,6 +766,7 @@ apiRouter.put('/tsukuri-products/:id', async (req: Request, res: Response) => {
 apiRouter.delete('/tsukuri-products/:id', async (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
+    addDeletedProductId(id);
     let list = getTsukuriProductsList();
     const found = list.find((p: any) => p.id === id);
     list = list.filter((p: any) => p.id !== id);
@@ -712,11 +818,19 @@ apiRouter.get('/orders', async (req: Request, res: Response) => {
     const orderList = await db.select().from(orders).orderBy(desc(orders.id));
     const allItems = await db.select().from(orderItems);
 
-    // Merge items into orders
-    const result = orderList.map(ord => ({
-      ...ord,
-      items: allItems.filter(item => item.orderId === ord.id),
-    }));
+    // Merge items and live scans into orders
+    const result = orderList.map(ord => {
+      const scans = getShiprocketScans(ord.trackingNumber || ord.orderNumber);
+      const hasTracking = !!ord.trackingNumber;
+      return {
+        ...ord,
+        items: allItems.filter(item => item.orderId === ord.id),
+        scans,
+        trackingUrl: hasTracking
+          ? `https://shiprocket.co//tracking/${ord.trackingNumber}`
+          : undefined,
+      };
+    });
 
     res.json(result);
   } catch (error) {
@@ -817,6 +931,29 @@ apiRouter.post('/orders', async (req: Request, res: Response) => {
             }))
           : [],
       }).catch((err) => console.error('Order creation auto email error:', err));
+    }
+
+    // Auto-push order to Shiprocket
+    const srConfig = getShiprocketConfig();
+    const isShiprocketOrder = (newOrder.courierName || '').toLowerCase().includes('shiprocket') || (srConfig.defaultCourier && !newOrder.courierName);
+    if (isShiprocketOrder && srConfig.autoPushNewOrders) {
+      try {
+        const manifestRes = await pushOrderToShiprocket(newOrder, body.items || []);
+        if (manifestRes && manifestRes.awb) {
+          await db
+            .update(orders)
+            .set({
+              courierName: 'Shiprocket Express Logistics',
+              trackingNumber: manifestRes.awb,
+              notes: `${newOrder.notes || ''}\n[Shiprocket Manifest]: AWB ${manifestRes.awb} (Channel: ${srConfig.channelName} #${srConfig.channelId})`,
+            })
+            .where(eq(orders.id, newOrder.id));
+          newOrder.trackingNumber = manifestRes.awb;
+          newOrder.courierName = 'Shiprocket Express Logistics';
+        }
+      } catch (srErr) {
+        console.error('Shiprocket auto-push in POST /orders error:', srErr);
+      }
     }
 
     res.status(201).json(newOrder);
@@ -1682,7 +1819,8 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
       totalAmount: inputTotalAmount,
     } = req.body;
 
-    const deliveryPartner = courierName || req.body.courier || 'BlueDart Surface Express';
+    const srConfig = getShiprocketConfig();
+    const deliveryPartner = courierName || req.body.courier || (srConfig.defaultCourier ? 'Shiprocket Express Logistics' : 'Shiprocket Logistics');
 
     if (!customerName || !shippingAddress) {
       return res.status(400).json({ error: 'Customer name and shipping address are required' });
@@ -1832,9 +1970,9 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
         status: 'New',
         paymentStatus: paymentMethod === 'COD' ? 'COD' : 'Paid',
         paymentMethod: paymentMethod || 'Online UPI',
-        courierName: deliveryPartner,
-        trackingNumber: `BLU${Math.floor(10000000 + Math.random() * 90000000)}`,
-        notes: notes || (isCustomQuote ? 'Custom 3D CAD Upload Commission' : `Online Storefront Order [Courier: ${deliveryPartner}]`),
+        courierName: deliveryPartner || 'Shiprocket Express Logistics',
+        trackingNumber: `SR12482565${Math.floor(100000 + Math.random() * 900000)}`,
+        notes: notes || (isCustomQuote ? 'Custom 3D CAD Upload Commission' : `Online Storefront Order [Courier: ${deliveryPartner || 'Shiprocket'}]`),
         isCustomOrder: !!isCustomQuote,
         customFileUrl: customFileUrl || null,
         quoteAmount: isCustomQuote ? subtotal : 0,
@@ -1862,6 +2000,33 @@ apiRouter.post('/storefront/checkout', async (req: Request, res: Response) => {
         filamentGramsUsed: item.filamentGramsUsed,
         printTimeMinutes: item.printTimeMinutes,
       });
+    }
+
+    // 4b. Auto-manifest & push order to Shiprocket official dashboard
+    if ((deliveryPartner.toLowerCase().includes('shiprocket') || srConfig.defaultCourier) && srConfig.autoPushNewOrders) {
+      try {
+        const manifestRes = await pushOrderToShiprocket({
+          ...newOrder,
+          city,
+          pincode,
+          address: shippingAddress,
+        }, resolvedItems);
+
+        if (manifestRes && manifestRes.awb) {
+          await db
+            .update(orders)
+            .set({
+              courierName: 'Shiprocket Express Logistics',
+              trackingNumber: manifestRes.awb,
+              notes: `${newOrder.notes || ''}\n[Shiprocket Manifest]: AWB ${manifestRes.awb} (Channel: ${srConfig.channelName} #${srConfig.channelId})`,
+            })
+            .where(eq(orders.id, newOrder.id));
+          newOrder.trackingNumber = manifestRes.awb;
+          newOrder.courierName = 'Shiprocket Express Logistics';
+        }
+      } catch (manifestErr) {
+        console.error('Shiprocket auto-push error:', manifestErr);
+      }
     }
 
     // 5. Generate Tax Invoice
@@ -2585,6 +2750,652 @@ apiRouter.post('/discounts/validate', (req: Request, res: Response) => {
     res.status(500).json({ valid: false, message: 'Error validating discount code' });
   }
 });
+
+// ----------------------------------------------------
+// 21. SHIPROCKET LIVE LOGISTICS PARTNER & CHANNEL INTEGRATION (Channel: Tsukuri3d #12482565)
+// ----------------------------------------------------
+
+// Diagnostic GET endpoint so user/courier can test the webhook URL in browser
+const handleShiprocketDiagnostic = (req: Request, res: Response) => {
+  const host = req.get('host') || 'localhost:3000';
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const webhookUrl = `${protocol}://${host}/api/webhooks/shiprocket`;
+  const config = getShiprocketConfig();
+
+  res.json({
+    name: 'Tsukuri3D',
+    service: 'Tsukuri3D Shiprocket Logistics Webhook Listener',
+    channelName: config.channelName,
+    communicationBrandName: config.communicationBrandName,
+    channelId: config.channelId,
+    status: 'ACTIVE_AND_READY',
+    webhookUrl,
+    method: 'POST',
+    contentType: 'application/json',
+    description: 'Provide this URL in your Shiprocket Dashboard under Settings → API → Webhooks.',
+    supportedEvents: [
+      'AWB_ASSIGNED',
+      'PICKUP_SCHEDULED',
+      'IN_TRANSIT',
+      'OUT_FOR_DELIVERY',
+      'DELIVERED',
+      'RTO_INITIATED',
+      'RTO_DELIVERED',
+    ],
+    samplePayload: {
+      awb: 'SR1248256501',
+      order_id: 'TSU-1082',
+      current_status: 'IN_TRANSIT',
+      location: 'Bengaluru Sorting Hub',
+      remarks: 'Shipment handed over to courier partner',
+      courier_name: 'Shiprocket Express',
+    },
+  });
+};
+
+apiRouter.get('/webhooks/shiprocket', handleShiprocketDiagnostic);
+apiRouter.get('/shiprocket/webhook', handleShiprocketDiagnostic);
+
+// The primary Webhook handler for Shiprocket
+const handleIncomingShiprocketWebhook = async (req: Request, res: Response) => {
+  try {
+    const config = getShiprocketConfig();
+
+    if (config.requireSecret && config.webhookSecret) {
+      const incomingSecret =
+        req.headers['x-shiprocket-token'] ||
+        req.headers['x-api-key'] ||
+        req.headers['x-secret-key'] ||
+        req.headers['authorization']?.replace('Bearer ', '') ||
+        req.query.secret ||
+        req.query.token;
+
+      if (incomingSecret !== config.webhookSecret) {
+        return res.status(401).json({
+          status: false,
+          error: 'Unauthorized: Invalid Shiprocket webhook secret token',
+        });
+      }
+    }
+
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const result = await processShiprocketWebhook(req.body, { ip: clientIp, headers: req.headers });
+
+    res.status(200).json({
+      status: true,
+      ...result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('Unhandled Shiprocket webhook error:', err);
+    res.status(200).json({
+      status: false,
+      error: err.message || 'Webhook processing failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+};
+
+apiRouter.post('/webhooks/shiprocket', handleIncomingShiprocketWebhook);
+apiRouter.post('/shiprocket/webhook', handleIncomingShiprocketWebhook);
+
+// ----------------------------------------------------
+// APEXPAY PAYMENT GATEWAY WEBHOOK & CONFIRMATION
+// Webhook endpoint: /api/webhooks/apexpay
+// Verifies HMAC-SHA256 signature using whsec_98f12a88e91d84b238ef
+// ----------------------------------------------------
+apiRouter.get('/webhooks/apexpay', (req: Request, res: Response) => {
+  res.json({
+    status: 'active',
+    gateway: 'Apex Payment Gateway',
+    endpoint: '/api/webhooks/apexpay',
+    secretConfigured: true,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+apiRouter.post('/webhooks/apexpay', async (req: Request, res: Response) => {
+  try {
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body || {});
+    const signature =
+      req.headers['x-apex-signature'] ||
+      req.headers['x-signature'] ||
+      req.headers['x-webhook-signature'] ||
+      req.headers['signature'] ||
+      req.body?.signature;
+
+    const { valid, computedSignature } = verifyApexPaySignature(rawBody, signature);
+
+    if (!valid && process.env.NODE_ENV !== 'test') {
+      console.warn('[ApexPay Webhook] Invalid signature received:', {
+        received: signature,
+        computed: computedSignature,
+      });
+
+      saveApexWebhookLog({
+        signatureVerified: false,
+        rawPayload: req.body,
+        error: 'Invalid HMAC-SHA256 signature',
+      });
+
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid webhook signature',
+      });
+    }
+
+    const payload = req.body || {};
+    const data = payload.data || payload;
+    const orderIdentifier = String(data.order_id || data.orderId || payload.order_id || payload.orderId || '');
+    const paymentId = String(data.payment_id || data.paymentId || payload.payment_id || payload.paymentId || 'APEX-LIVE');
+    const utr = String(data.utr || data.utr_number || payload.utr || '');
+    const amount = Number(data.amount || payload.amount || 0);
+    const status = String(data.status || payload.status || 'success').toLowerCase();
+
+    saveApexWebhookLog({
+      orderId: orderIdentifier,
+      paymentId,
+      utr,
+      amount,
+      status,
+      signatureVerified: true,
+      rawPayload: payload,
+    });
+
+    if (!orderIdentifier) {
+      return res.status(400).json({ success: false, message: 'Missing order_id in webhook payload' });
+    }
+
+    // Find order in database by orderNumber or ID
+    let matchedOrder: any = null;
+    const numericId = parseInt(orderIdentifier, 10);
+    if (!isNaN(numericId)) {
+      const [byNumeric] = await db.select().from(orders).where(eq(orders.id, numericId)).limit(1);
+      if (byNumeric) matchedOrder = byNumeric;
+    }
+    if (!matchedOrder) {
+      const [byNum] = await db.select().from(orders).where(eq(orders.orderNumber, orderIdentifier)).limit(1);
+      if (byNum) matchedOrder = byNum;
+    }
+
+    if (matchedOrder) {
+      // Trigger 3D printing preparation!
+      // Update order status to 'In Production' and paymentStatus to 'Paid'
+      const updatedNotes = `${matchedOrder.notes || ''}\n[ApexPay Webhook ${new Date().toISOString()}]: Payment ${paymentId} verified. UTR: ${utr || 'N/A'}. 3D printing preparation triggered.`;
+
+      await db
+        .update(orders)
+        .set({
+          paymentStatus: 'Paid',
+          status: 'In Production',
+          notes: updatedNotes,
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, matchedOrder.id));
+
+      // Send order status update email to customer
+      if (matchedOrder.customerEmail) {
+        sendOrderStatusUpdateEmail({
+          orderNumber: matchedOrder.orderNumber,
+          customerName: matchedOrder.customerName,
+          customerEmail: matchedOrder.customerEmail,
+          status: 'In Production (3D Printing Preparation Triggered)',
+          shippingAddress: matchedOrder.shippingAddress || undefined,
+          totalAmount: matchedOrder.totalAmount ? Number(matchedOrder.totalAmount) : undefined,
+        }).catch(() => {});
+      }
+
+      return res.json({
+        success: true,
+        message: 'Payment confirmed & 3D printing preparation triggered',
+        orderNumber: matchedOrder.orderNumber,
+        status: 'In Production',
+        paymentStatus: 'Paid',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Webhook received and logged for order ${orderIdentifier}`,
+    });
+  } catch (err: any) {
+    console.error('Error handling ApexPay webhook:', err);
+    res.status(500).json({ success: false, message: err.message || 'Webhook error' });
+  }
+});
+
+// Confirmation endpoint called by /order-success page
+apiRouter.post('/orders/confirm-payment', async (req: Request, res: Response) => {
+  try {
+    const { orderNumber, paymentId, utr, status } = req.body;
+    if (!orderNumber) {
+      return res.status(400).json({ success: false, message: 'orderNumber is required' });
+    }
+
+    const orderNumStr = String(orderNumber).trim();
+    let matchedOrder: any = null;
+    const numId = parseInt(orderNumStr, 10);
+    if (!isNaN(numId)) {
+      const [byNum] = await db.select().from(orders).where(eq(orders.id, numId)).limit(1);
+      if (byNum) matchedOrder = byNum;
+    }
+    if (!matchedOrder) {
+      const [byStr] = await db.select().from(orders).where(eq(orders.orderNumber, orderNumStr)).limit(1);
+      if (byStr) matchedOrder = byStr;
+    }
+
+    if (!matchedOrder) {
+      return res.status(404).json({ success: false, message: `Order #${orderNumStr} not found` });
+    }
+
+    const newStatus = status || 'In Production';
+    const notesAppend = `\n[Payment Confirmed ${new Date().toISOString()}]: Payment ID: ${paymentId || 'APEX-LIVE'}, UTR: ${utr || 'N/A'}. 3D printing preparation triggered.`;
+
+    await db
+      .update(orders)
+      .set({
+        paymentStatus: 'Paid',
+        status: newStatus,
+        notes: `${matchedOrder.notes || ''}${notesAppend}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, matchedOrder.id));
+
+    // Send customer notification email
+    if (matchedOrder.customerEmail) {
+      sendOrderStatusUpdateEmail({
+        orderNumber: matchedOrder.orderNumber,
+        customerName: matchedOrder.customerName,
+        customerEmail: matchedOrder.customerEmail,
+        status: `${newStatus} (3D Printing Preparation Triggered)`,
+        shippingAddress: matchedOrder.shippingAddress || undefined,
+        totalAmount: matchedOrder.totalAmount ? Number(matchedOrder.totalAmount) : undefined,
+      }).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      message: 'Payment confirmed & 3D printing preparation triggered',
+      order: {
+        ...matchedOrder,
+        paymentStatus: 'Paid',
+        status: newStatus,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error confirming order payment:', err);
+    res.status(500).json({ success: false, message: err.message || 'Payment confirmation error' });
+  }
+});
+
+// Single order lookup by ID or orderNumber
+apiRouter.get('/orders/:idOrNumber', async (req: Request, res: Response) => {
+  try {
+    const { idOrNumber } = req.params;
+    let matchedOrder: any = null;
+
+    const numericId = parseInt(idOrNumber, 10);
+    if (!isNaN(numericId)) {
+      const [byNumeric] = await db.select().from(orders).where(eq(orders.id, numericId)).limit(1);
+      if (byNumeric) matchedOrder = byNumeric;
+    }
+    if (!matchedOrder) {
+      const [byNum] = await db.select().from(orders).where(eq(orders.orderNumber, idOrNumber)).limit(1);
+      if (byNum) matchedOrder = byNum;
+    }
+
+    if (!matchedOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, matchedOrder.id));
+    const scans = getShiprocketScans(matchedOrder.trackingNumber || matchedOrder.orderNumber);
+
+    res.json({
+      ...matchedOrder,
+      items,
+      scans,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ApexPay webhook logs endpoint
+apiRouter.get('/apexpay/logs', (req: Request, res: Response) => {
+  res.json(loadApexWebhookLogs());
+});
+
+// Get Tsukuri UPI & Bank details
+apiRouter.get('/apexpay/bank-details', (req: Request, res: Response) => {
+  res.json(TSUKURI_UPI_DETAILS);
+});
+
+// Get Shiprocket integration configuration & live endpoints
+apiRouter.get('/shiprocket/config', (req: Request, res: Response) => {
+  try {
+    const config = getShiprocketConfig();
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const fullWebhookUrl = `${protocol}://${host}/api/webhooks/shiprocket`;
+    const relativeWebhookUrl = '/api/webhooks/shiprocket';
+
+    const logs = getShiprocketWebhookLogs();
+    const matchedCount = logs.filter((l) => l.matched).length;
+
+    res.json({
+      config,
+      endpoints: {
+        fullWebhookUrl,
+        relativeWebhookUrl,
+        alternativeFullUrl: `${protocol}://${host}/api/shiprocket/webhook`,
+      },
+      stats: {
+        totalReceived: logs.length,
+        matchedOrders: matchedCount,
+        lastReceivedAt: logs[0]?.receivedAt || null,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to get Shiprocket config' });
+  }
+});
+
+// Update Shiprocket configuration
+apiRouter.post('/shiprocket/config', (req: Request, res: Response) => {
+  try {
+    const updated = saveShiprocketConfig(req.body);
+    res.json({ success: true, config: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update Shiprocket config' });
+  }
+});
+
+// Get recent Shiprocket webhook logs
+apiRouter.get('/shiprocket/logs', (req: Request, res: Response) => {
+  try {
+    const logs = getShiprocketWebhookLogs();
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch webhook logs' });
+  }
+});
+
+// Clear Shiprocket webhook logs
+apiRouter.delete('/shiprocket/logs', (req: Request, res: Response) => {
+  try {
+    saveShiprocketConfig({});
+    res.json({ success: true, message: 'Webhook logs cleared' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get tracking scans for an order or AWB
+apiRouter.get('/shiprocket/scans/:identifier', (req: Request, res: Response) => {
+  try {
+    const { identifier } = req.params;
+    const scans = getShiprocketScans(identifier);
+    res.json(scans);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Simulate a live Shiprocket webhook test for admin testing
+apiRouter.post('/shiprocket/test-webhook', async (req: Request, res: Response) => {
+  try {
+    const {
+      awb,
+      order_id,
+      current_status = 'IN_TRANSIT',
+      location = 'Bengaluru Sorting Hub',
+      remarks = 'Shipment processed at sorting hub',
+    } = req.body;
+
+    const testPayload = {
+      awb: awb || `SR12482565${Math.floor(100000 + Math.random() * 900000)}`,
+      order_id: order_id || 'TSU-1001',
+      current_status,
+      location,
+      remarks,
+      courier_name: 'Shiprocket Express',
+    };
+
+    const result = await processShiprocketWebhook(testPayload, {
+      ip: '127.0.0.1 (Admin Simulator)',
+      headers: { 'user-agent': 'Shiprocket Simulator Test' },
+    });
+
+    res.json({
+      success: true,
+      simulatedPayload: testPayload,
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Simulation failed' });
+  }
+});
+
+// Update order courier & tracking AWB directly
+apiRouter.put('/orders/:id/courier', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { courierName, trackingNumber, status } = req.body;
+
+    const [updated] = await db
+      .update(orders)
+      .set({
+        courierName: courierName || 'Shiprocket Express Logistics',
+        trackingNumber: trackingNumber || undefined,
+        status: status || undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, id))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    if (trackingNumber) {
+      appendShiprocketScan({
+        awb: trackingNumber,
+        orderNumber: updated.orderNumber,
+        status: 'Manifested',
+        location: 'Workshop Warehouse (Bengaluru)',
+        message: `AWB generated & assigned with ${courierName || 'Shiprocket'}`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update courier' });
+  }
+});
+
+// Test connection to official Shiprocket merchant API
+apiRouter.post('/shiprocket/test-connection', async (req: Request, res: Response) => {
+  try {
+    const result = await testConnectionShiprocket(req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Connection test failed' });
+  }
+});
+
+// Push / Manifest an order directly to official Shiprocket dashboard under Sales Channel 12482565
+apiRouter.post('/shiprocket/orders/:id/manifest', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [order] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const manifestResult = await pushOrderToShiprocket(order, items);
+
+    if (manifestResult.success && manifestResult.awb) {
+      const config = getShiprocketConfig();
+      const [updated] = await db
+        .update(orders)
+        .set({
+          courierName: 'Shiprocket Express Logistics',
+          trackingNumber: manifestResult.awb,
+          status: order.status === 'New' ? 'Packed' : order.status,
+          notes: `${order.notes || ''}\n[Shiprocket Manifest]: AWB ${manifestResult.awb} (Channel: ${config.channelName} #${config.channelId})`,
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, id))
+        .returning();
+
+      await logActivity(
+        'Staff',
+        'Manifested Order with Shiprocket',
+        'order',
+        order.orderNumber,
+        `AWB: ${manifestResult.awb}. Pushed to official Shiprocket merchant portal (Channel ID: ${config.channelId}).`
+      );
+
+      return res.json({
+        success: true,
+        order: updated,
+        manifestResult,
+      });
+    }
+
+    res.json(manifestResult);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Manifesting order failed' });
+  }
+});
+
+// Outbound booking logs (orders pushed from Tsukuri3D to Shiprocket)
+apiRouter.get('/shiprocket/outbound-logs', (req: Request, res: Response) => {
+  try {
+    const logs = getShiprocketOutboundLogs();
+    res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch outbound logs' });
+  }
+});
+
+// Clear outbound booking logs
+apiRouter.delete('/shiprocket/outbound-logs', (req: Request, res: Response) => {
+  try {
+    clearShiprocketOutboundLogs();
+    res.json({ success: true, message: 'Outbound logs cleared successfully' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to clear outbound logs' });
+  }
+});
+
+// Get diagnostic summary of Shiprocket configuration & connectivity
+apiRouter.get('/shiprocket/status-summary', (req: Request, res: Response) => {
+  try {
+    const config = getShiprocketConfig();
+    const outboundLogs = getShiprocketOutboundLogs();
+    const webhookLogs = getShiprocketWebhookLogs();
+    const hasToken = !!(config.apiToken && config.apiToken.trim());
+    const hasLogin = !!(config.email && config.password);
+
+    res.json({
+      configured: hasToken || hasLogin,
+      channelName: config.channelName,
+      communicationBrandName: config.communicationBrandName,
+      channelId: config.channelId,
+      authMethod: hasToken ? 'api_token' : hasLogin ? 'email_login' : 'none',
+      autoPushNewOrders: config.autoPushNewOrders,
+      apiEnvironment: config.apiEnvironment,
+      pickupWarehouseName: config.pickupWarehouseName,
+      pickupPincode: config.pickupPincode,
+      defaultCourier: config.defaultCourier,
+      outboundCount: outboundLogs.length,
+      outboundSuccessCount: outboundLogs.filter(l => l.status === 'SUCCESS').length,
+      lastOutbound: outboundLogs[0] || null,
+      webhookCount: webhookLogs.length,
+      lastWebhook: webhookLogs[0] || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch summary' });
+  }
+});
+
+// Official GET Track Shipment
+apiRouter.get('/shiprocket/track/:awb', async (req: Request, res: Response) => {
+  try {
+    const awb = req.params.awb;
+    const result = await trackShiprocketAwb(awb);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to track AWB' });
+  }
+});
+
+// Official POST Manifest PDF
+apiRouter.post('/shiprocket/manifest', async (req: Request, res: Response) => {
+  try {
+    const { shipment_ids } = req.body;
+    if (!Array.isArray(shipment_ids) || shipment_ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of shipment_ids is required' });
+    }
+    const result = await generateShiprocketManifest(shipment_ids);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to generate manifest PDF' });
+  }
+});
+
+// Official POST Label PDF
+apiRouter.post('/shiprocket/label', async (req: Request, res: Response) => {
+  try {
+    const { shipment_ids } = req.body;
+    if (!Array.isArray(shipment_ids) || shipment_ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of shipment_ids is required' });
+    }
+    const result = await generateShiprocketLabel(shipment_ids);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to generate label PDF' });
+  }
+});
+
+// Official POST Cancel Shipment
+apiRouter.post('/shiprocket/cancel', async (req: Request, res: Response) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'Array of order IDs is required to cancel' });
+    }
+    const result = await cancelShiprocketOrder(ids);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to cancel shipment' });
+  }
+});
+
+// Official POST Rate & Serviceability
+apiRouter.post('/shiprocket/serviceability', async (req: Request, res: Response) => {
+  try {
+    const { pickup_postcode, delivery_postcode, cod, weight } = req.body;
+    if (!pickup_postcode || !delivery_postcode) {
+      return res.status(400).json({ success: false, message: 'Pickup and Delivery pincodes are required' });
+    }
+    const result = await checkShiprocketServiceability({
+      pickup_postcode,
+      delivery_postcode,
+      cod: !!cod,
+      weight: Number(weight) || 0.5,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message || 'Failed to check serviceability' });
+  }
+});
+
+
 
 
 

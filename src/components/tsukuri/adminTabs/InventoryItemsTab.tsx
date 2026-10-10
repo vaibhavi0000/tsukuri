@@ -13,13 +13,23 @@ export interface ConsumableItem {
 }
 
 export const InventoryItemsTab: React.FC = () => {
-  const [items, setItems] = useState<ConsumableItem[]>([
-    { id: 'inv-1', name: 'Origami Craft Recycled Mailer Boxes', category: 'Packaging', stock: 450, unit: 'boxes', minReorderLevel: 100, costPerUnitINR: 35, supplier: 'EcoCraft Packaging' },
-    { id: 'inv-2', name: '0.4mm Hardened Steel Nozzle (Bambu X1C)', category: 'Spare Parts', stock: 8, unit: 'pcs', minReorderLevel: 4, costPerUnitINR: 650, supplier: 'Bambu Lab Direct' },
-    { id: 'inv-3', name: 'PEI Textured Spring Steel Build Plate', category: 'Spare Parts', stock: 3, unit: 'plates', minReorderLevel: 2, costPerUnitINR: 1800, supplier: 'Bambu Lab Direct' },
-    { id: 'inv-4', name: 'IPA 99.9% Isopropyl Cleaning Solvent', category: 'Consumables', stock: 12, unit: 'liters', minReorderLevel: 5, costPerUnitINR: 220, supplier: 'Industrial Solvents India' },
-    { id: 'inv-5', name: '3D Lac Bed Adhesion Spray (400ml)', category: 'Consumables', stock: 4, unit: 'cans', minReorderLevel: 5, costPerUnitINR: 480, supplier: 'PrintMaterials India' },
-  ]);
+  const [items, setItems] = useState<ConsumableItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_inventory_items');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const saveItems = (newItems: ConsumableItem[]) => {
+    setItems(newItems);
+    try {
+      localStorage.setItem('tsukuri_inventory_items', JSON.stringify(newItems));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,22 +46,21 @@ export const InventoryItemsTab: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      setItems((prev) =>
-        prev.map((it) =>
-          it.id === editingId
-            ? {
-                ...it,
-                name,
-                category,
-                stock: Number(stock),
-                unit,
-                minReorderLevel: Number(minReorderLevel),
-                costPerUnitINR: Number(costPerUnit),
-                supplier,
-              }
-            : it
-        )
+      const updated = items.map((it) =>
+        it.id === editingId
+          ? {
+              ...it,
+              name,
+              category,
+              stock: Number(stock),
+              unit,
+              minReorderLevel: Number(minReorderLevel),
+              costPerUnitINR: Number(costPerUnit),
+              supplier,
+            }
+          : it
       );
+      saveItems(updated);
     } else {
       const newItem: ConsumableItem = {
         id: `inv-${Date.now().toString().slice(-4)}`,
@@ -63,18 +72,17 @@ export const InventoryItemsTab: React.FC = () => {
         costPerUnitINR: Number(costPerUnit),
         supplier,
       };
-      setItems([...items, newItem]);
+      saveItems([...items, newItem]);
     }
     setIsModalOpen(false);
     setEditingId(null);
   };
 
   const handleAdjustStock = (id: string, delta: number) => {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === id ? { ...it, stock: Math.max(0, it.stock + delta) } : it
-      )
+    const updated = items.map((it) =>
+      it.id === id ? { ...it, stock: Math.max(0, it.stock + delta) } : it
     );
+    saveItems(updated);
   };
 
   const handleEdit = (it: ConsumableItem) => {
@@ -90,7 +98,7 @@ export const InventoryItemsTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setItems((prev) => prev.filter((it) => it.id !== id));
+    saveItems(items.filter((it) => it.id !== id));
   };
 
   const filtered = items.filter(

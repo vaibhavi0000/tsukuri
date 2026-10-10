@@ -29,74 +29,7 @@ export interface AuditLogItem {
   sessionClient?: string;
 }
 
-const INITIAL_AUDIT_LOGS: AuditLogItem[] = [
-  {
-    id: 'aud-101',
-    timestamp: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-    admin: 'Aditya',
-    passcodeVerified: 'Verified',
-    action: 'Co-Founder Security Authentication',
-    category: 'auth',
-    details: 'Aditya authenticated successfully with full Co-Founder master rights.',
-    status: 'Verified',
-    sessionClient: 'Console Session · Clearance Verified',
-  },
-  {
-    id: 'aud-102',
-    timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    admin: 'Anshuman',
-    passcodeVerified: 'Verified',
-    action: 'Product Catalog & Media Upload',
-    category: 'product',
-    details: 'Anshuman uploaded product photos and configured video carousel for product LL (#57005).',
-    status: 'Success',
-    sessionClient: 'Console Session · Clearance Verified',
-  },
-  {
-    id: 'aud-103',
-    timestamp: new Date(Date.now() - 1000 * 60 * 32).toISOString(),
-    admin: 'Aditya',
-    passcodeVerified: 'Verified',
-    action: 'Automatic Combo Pricing Update',
-    category: 'pricing',
-    details: 'Aditya generated automatic quantity tier pricing for 1x, 2x, 3x, 4x packs from base selling price ₹599.',
-    status: 'Success',
-    sessionClient: 'Console Session · Clearance Verified',
-  },
-  {
-    id: 'aud-104',
-    timestamp: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
-    admin: 'Anshuman',
-    passcodeVerified: 'Verified',
-    action: 'Official Studio Offer Configured',
-    category: 'offer',
-    details: 'Anshuman updated official studio offer below product: "SPECIAL STUDIO DEAL: 20% OFF ON UPI".',
-    status: 'Success',
-    sessionClient: 'Console Session · Clearance Verified',
-  },
-  {
-    id: 'aud-105',
-    timestamp: new Date(Date.now() - 1000 * 60 * 80).toISOString(),
-    admin: 'Aditya',
-    passcodeVerified: 'Verified',
-    action: 'Product Video Position Assigned',
-    category: 'product',
-    details: 'Aditya set product own video to scrollable position "After images end" in main media gallery.',
-    status: 'Success',
-    sessionClient: 'Console Session · Clearance Verified',
-  },
-  {
-    id: 'aud-106',
-    timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-    admin: 'Anshuman',
-    passcodeVerified: 'Verified',
-    action: 'Co-Founder Security Authentication',
-    category: 'auth',
-    details: 'Anshuman authenticated successfully with full Co-Founder master rights.',
-    status: 'Verified',
-    sessionClient: 'Console Session · Clearance Verified',
-  },
-];
+const INITIAL_AUDIT_LOGS: AuditLogItem[] = [];
 
 interface AuditLogsTabProps {
   currentAdminUser: string;

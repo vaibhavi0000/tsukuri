@@ -748,7 +748,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   className="w-full py-4 rounded-full bg-[#f3b755] hover:bg-[#ebb04c] text-[#1a2e26] font-bubbly text-base tracking-wide flex items-center justify-center gap-2 shadow-md hover:scale-102 active:scale-98 transition-all cursor-pointer"
                 >
                   <Zap className="w-5 h-5 fill-current text-[#1a2e26]" />
-                  <span>BUY NOW (COD / UPI)</span>
+                  <span>BUY NOW / ORDER PRINT</span>
                 </button>
 
                 <button

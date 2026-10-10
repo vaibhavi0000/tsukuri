@@ -1,4 +1,5 @@
-import { WorkshopOrder, formatPrice, formatIndianDate } from '../components/tsukuri/tsukuriData.ts';
+import type { WorkshopOrder } from '../components/tsukuri/tsukuriData.ts';
+import { formatPrice, formatIndianDate } from '../components/tsukuri/tsukuriData.ts';
 
 export function generateInvoiceHTML(order: WorkshopOrder): string {
   const subtotalBeforeTax = Math.round(order.totalAmountINR / 1.18);
@@ -685,14 +686,14 @@ export function generateBeautifulEmailHTML(order: WorkshopOrder): string {
           </tr>
         </thead>
         <tbody>
-          ${order.items.map((it) => `
+          ${(order.items || []).map((it) => `
             <tr>
               <td>
-                <span class="item-name">${it.name}</span>
+                <span class="item-name">${it?.name || 'Custom 3D Item'}</span>
                 <span class="item-sub">100% Bio-Matte PLA · High-Speed AMS Print · Kyoto Craft Finish</span>
               </td>
-              <td style="text-align: center; font-weight: 700; color: #1e4b3e;">${it.quantity}</td>
-              <td style="text-align: right; font-family: monospace; font-weight: 700;">₹${Number(it.priceINR * it.quantity).toLocaleString('en-IN')}</td>
+              <td style="text-align: center; font-weight: 700; color: #1e4b3e;">${it?.quantity || 1}</td>
+              <td style="text-align: right; font-family: monospace; font-weight: 700;">₹${Number((it?.priceINR || 0) * (it?.quantity || 1)).toLocaleString('en-IN')}</td>
             </tr>
           `).join('')}
         </tbody>

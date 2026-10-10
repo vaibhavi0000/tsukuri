@@ -191,6 +191,8 @@ export async function verifySmtpConnection(): Promise<{ success: boolean; messag
   }
 }
 
+const sentOrderInvoicesTime = new Map<string, number>();
+
 export async function sendBackendInvoiceEmail(params: {
   to: string;
   customerName: string;
@@ -199,13 +201,24 @@ export async function sendBackendInvoiceEmail(params: {
   emailHTML: string;
   plainText?: string;
   subjectOverride?: string;
+  forceSend?: boolean;
 }): Promise<{ success: boolean; messageId?: string; previewUrl?: string; error?: string }> {
-  const { to, customerName, orderNumber, totalAmount, emailHTML, plainText, subjectOverride } = params;
+  const { to, customerName, orderNumber, totalAmount, emailHTML, plainText, subjectOverride, forceSend } = params;
 
   if (!to) {
     console.warn('[ServerMailer] Cannot send email: No recipient email address provided');
     return { success: false, error: 'No recipient email address' };
   }
+
+  // Deduplicate rapid dual dispatches for the same order invoice (e.g. within 60s) unless explicit status update or forceSend
+  const isStatusUpdate = !!subjectOverride?.includes('Update');
+  const dedupeKey = `${orderNumber}_${isStatusUpdate ? 'status' : 'invoice'}`;
+  const lastSent = sentOrderInvoicesTime.get(dedupeKey);
+  if (!forceSend && lastSent && Date.now() - lastSent < 60000) {
+    console.log(`[ServerMailer] Skipping duplicate email for ${orderNumber} (${dedupeKey}) dispatched within 60s`);
+    return { success: true, messageId: `<deduplicated-${orderNumber}@tsukuri3d.store>` };
+  }
+  sentOrderInvoicesTime.set(dedupeKey, Date.now());
 
   // Persist invoice HTML to disk for instant view and archival
   try {
@@ -405,11 +418,11 @@ export function buildTaxInvoiceEmailHtml(params: {
     .map(
       (it) => `<tr>
         <td style="padding: 12px 14px; border-bottom: 1px solid #e8ece1; font-family: sans-serif;">
-          <strong style="color: #1a2e26; font-size: 13px;">${it.productName || '3D Craft Model'}</strong>
+          <strong style="color: #1a2e26; font-size: 13px;">${it?.productName || '3D Craft Model'}</strong>
           <div style="font-size: 10px; color: #64748b; margin-top: 2px;">100% Bio-Matte PLA · 0.12mm Precision Layers · Solar Crafted</div>
         </td>
-        <td style="padding: 12px 14px; border-bottom: 1px solid #e8ece1; text-align: center; font-weight: bold; color: #1e4b3e;">${it.quantity}</td>
-        <td style="padding: 12px 14px; border-bottom: 1px solid #e8ece1; text-align: right; font-weight: bold; font-family: monospace;">₹${Number(it.totalPrice).toLocaleString('en-IN')}</td>
+        <td style="padding: 12px 14px; border-bottom: 1px solid #e8ece1; text-align: center; font-weight: bold; color: #1e4b3e;">${it?.quantity || 1}</td>
+        <td style="padding: 12px 14px; border-bottom: 1px solid #e8ece1; text-align: right; font-weight: bold; font-family: monospace;">₹${Number(it?.totalPrice || 0).toLocaleString('en-IN')}</td>
       </tr>`
     )
     .join('');

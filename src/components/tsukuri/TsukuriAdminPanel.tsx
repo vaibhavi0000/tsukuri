@@ -51,6 +51,10 @@ import {
   ShieldCheck,
   Phone,
   MessageCircle,
+  ExternalLink,
+  PieChart,
+  Star,
+  Crown,
 } from 'lucide-react';
 import {
   TsukuriProduct,
@@ -78,9 +82,11 @@ import { PurchasesTab } from './adminTabs/PurchasesTab.tsx';
 import { InvoicesTab } from './adminTabs/InvoicesTab.tsx';
 import { ActivityLogTab } from './adminTabs/ActivityLogTab.tsx';
 import { PartnersSplitTab } from './adminTabs/PartnersSplitTab.tsx';
+import { CostAndProfitAnalysisTab } from './adminTabs/CostAndProfitAnalysisTab.tsx';
 import { EmailDeliverySettingsCard } from './adminTabs/EmailDeliverySettingsCard.tsx';
 import { DiscountsTab } from './adminTabs/DiscountsTab.tsx';
 import { AuditLogsTab, AuditLogItem } from './adminTabs/AuditLogsTab.tsx';
+import { ShiprocketIntegrationCard } from './adminTabs/ShiprocketIntegrationCard.tsx';
 import { formatMediaUrl } from './tsukuriData.ts';
 
 interface TsukuriAdminPanelProps {
@@ -90,6 +96,8 @@ interface TsukuriAdminPanelProps {
   onAddProduct: (prod: TsukuriProduct) => Promise<void> | void;
   onUpdateProduct: (id: number, prod: Partial<TsukuriProduct>) => Promise<void> | void;
   onDeleteProduct: (id: number) => Promise<void> | void;
+  bestSellerProductId?: number;
+  onSelectBestSeller?: (id: number) => void;
 }
 
 const REVIEWER_FIRST_NAMES = [
@@ -252,6 +260,8 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   onAddProduct,
   onUpdateProduct,
   onDeleteProduct,
+  bestSellerProductId,
+  onSelectBestSeller,
 }) => {
   // Requirement 20: Admin only allows two people: Aditya and Anshuman
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -292,6 +302,24 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       return updated;
     });
     window.dispatchEvent(new CustomEvent('tsukuri_audit_updated'));
+    window.dispatchEvent(
+      new CustomEvent('tsukuri_activity_event', {
+        detail: {
+          id: newLog.id,
+          type: entry.category === 'order' ? 'order' : entry.category === 'product' ? 'cart' : 'print',
+          message: `${entry.admin}: ${entry.action} - ${entry.details}`,
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      })
+    );
+    fetch('/api/telemetry/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        eventType: entry.category === 'order' ? 'order' : entry.category === 'product' ? 'cart' : 'print',
+        eventMessage: `${entry.admin}: ${entry.action} - ${entry.details}`,
+      }),
+    }).catch(() => {});
   };
 
   // All Functions matching database & system requirements
@@ -306,6 +334,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     | 'print_jobs'
     | 'filament_spools'
     | 'inventory_items'
+    | 'cost_profit'
     | 'suppliers'
     | 'purchases'
     | 'partners_split'
@@ -319,17 +348,20 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
     | 'reports'
     | 'settings'
     | 'audit_logs'
+    | 'shiprocket'
   >('orders');
 
   const scrollNavRef = useRef<HTMLDivElement>(null);
 
-  // Real database orders (with localStorage persistence for Vercel)
+  // Real database orders (with localStorage persistence for Vercel, excluding sample data)
   const [ordersList, setOrdersList] = useState<WorkshopOrder[]>(() => {
     try {
       const stored = localStorage.getItem('tsukuri_orders');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((o: any) => !String(o.orderNumber || '').startsWith('PH-') && !String(o.id || '').startsWith('PH-'));
+        }
       }
     } catch {}
     return [];
@@ -338,6 +370,10 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('All');
   const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<WorkshopOrder | null>(null);
+  const [editingCourierOrder, setEditingCourierOrder] = useState<WorkshopOrder | null>(null);
+  const [editCourierName, setEditCourierName] = useState('Shiprocket Express Logistics');
+  const [editTrackingAwb, setEditTrackingAwb] = useState('');
+  const [isSavingCourier, setIsSavingCourier] = useState(false);
 
   // Status Flow
   const ALL_ORDER_STATUSES: Array<
@@ -368,83 +404,33 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
 
   // Production Queue & Printers
   const [productionView, setProductionView] = useState<'kanban' | 'list'>('kanban');
-  const [printersList, setPrintersList] = useState<any[]>([
-    {
-      id: 'pr-01',
-      name: 'Kyoto-1 (Bambu X1C)',
-      model: 'Bambu Lab X1-Carbon AMS',
-      status: 'Printing',
-      totalPrintHours: 412,
-      maintenanceDueHours: 88,
-      currentJobName: 'Zen_Wave_Planter_v4.gcode',
-      progressPercent: 78,
-      filamentUsedGrams: 165,
-    },
-    {
-      id: 'pr-02',
-      name: 'Kyoto-2 (Bambu X1C)',
-      model: 'Bambu Lab X1-Carbon AMS',
-      status: 'Printing',
-      totalPrintHours: 285,
-      maintenanceDueHours: 215,
-      currentJobName: 'Matcha_Keycaps_Batch3.gcode',
-      progressPercent: 91,
-      filamentUsedGrams: 35,
-    },
-    {
-      id: 'pr-03',
-      name: 'Nusantara-1 (Prusa MK4)',
-      model: 'Original Prusa MK4 Nextruder',
-      status: 'Idle',
-      totalPrintHours: 540,
-      maintenanceDueHours: 60,
-      currentJobName: 'Standby for queue',
-      progressPercent: 0,
-      filamentUsedGrams: 0,
-    },
-  ]);
+  const [printersList, setPrintersList] = useState<any[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_printers');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('tsukuri_printers', JSON.stringify(printersList));
+    } catch {}
+  }, [printersList]);
 
   // Inventory Spools (Requirement 17)
   const [spoolsList, setSpoolsList] = useState<any[]>(() => {
     try {
       const stored = localStorage.getItem('tsukuri_spools');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch {}
-    return [
-      {
-        id: 'sp-01',
-        material: 'Matte Matcha PLA',
-        brand: 'Polymaker PolyTerra',
-        color: '#607d64',
-        totalWeightGrams: 1000,
-        remainingWeightGrams: 680,
-        costPerKg: 1200,
-        supplier: 'Kyoto BioPolymer Ltd.',
-        reorderThresholdGrams: 250,
-      },
-      {
-        id: 'sp-02',
-        material: 'Recycled Teak Wood PLA',
-        brand: 'FormFutura EasyWood',
-        color: '#8b5a2b',
-        totalWeightGrams: 1000,
-        remainingWeightGrams: 840,
-        costPerKg: 1650,
-        supplier: 'Bali Artisan Filament Co.',
-        reorderThresholdGrams: 200,
-      },
-      {
-        id: 'sp-03',
-        material: 'Terracotta Matte PETG',
-        brand: 'eSUN ePETG',
-        color: '#ea8f5a',
-        totalWeightGrams: 1000,
-        remainingWeightGrams: 180, // LOW STOCK
-        costPerKg: 1100,
-        supplier: 'PrintMaterials India',
-        reorderThresholdGrams: 250,
-      },
-    ];
+    return [];
   });
 
   // Requirement 17: Interactive Spool Modal Form State
@@ -495,14 +481,47 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       const stored = localStorage.getItem('tsukuri_customers');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const sampleNames = ['aarav mehta', 'ananya sharma', 'rohan nair', 'neha gupta', 'vikram malhotra', 'priya krishnan', 'kabir verma'];
+          const sampleDomains = ['@studio9.in', '@techcorp.in', '@chennai.co', '@delhiuniv.ac.in'];
+          return parsed.filter((c: any) => {
+            const n = (c.name || '').toLowerCase().trim();
+            const em = (c.email || '').toLowerCase().trim();
+            return !sampleNames.includes(n) && !sampleDomains.some((d) => em.includes(d));
+          });
+        }
       }
     } catch {}
     return [];
   });
   const [adminInvoiceToast, setAdminInvoiceToast] = useState<string | null>(null);
   const [sendingInvoiceOrderId, setSendingInvoiceOrderId] = useState<string | null>(null);
+  const [manifestingOrderId, setManifestingOrderId] = useState<string | null>(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+
+  const handleManifestWithShiprocket = async (order: WorkshopOrder) => {
+    setManifestingOrderId(order.orderNumber);
+    try {
+      const res = await fetch(`/api/shiprocket/orders/${order.id}/manifest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.success && data.manifestResult?.awb) {
+        setAdminInvoiceToast(`⚡ Shiprocket: AWB ${data.manifestResult.awb} generated! (Channel: Tsukuri3d #12482565) ${data.manifestResult.message}`);
+        setTimeout(() => setAdminInvoiceToast(null), 6000);
+        fetchLiveData();
+      } else {
+        setAdminInvoiceToast(`⚠️ Shiprocket: ${data.message || data.manifestResult?.message || 'Could not push order. Check your Shiprocket credentials in Admin Settings.'}`);
+        setTimeout(() => setAdminInvoiceToast(null), 6000);
+      }
+    } catch (err: any) {
+      setAdminInvoiceToast(`Error pushing to Shiprocket: ${err.message}`);
+      setTimeout(() => setAdminInvoiceToast(null), 6000);
+    } finally {
+      setManifestingOrderId(null);
+    }
+  };
 
   const handleSendInvoiceToCustomer = async (order: WorkshopOrder) => {
     const targetEmail = order.email;
@@ -813,13 +832,23 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [aiError, setAiError] = useState('');
 
   // Expenses & Finance
-  const [expensesList, setExpensesList] = useState<any[]>([
-    { id: 'exp-1', category: 'Filament', description: '5x Spools Polymaker Matcha PLA', amount: 6000, date: '2026-10-01' },
-    { id: 'exp-2', category: 'Electricity', description: 'Workshop Solar Microgrid Maintenance', amount: 1450, date: '2026-09-28' },
-    { id: 'exp-3', category: 'Ads', description: 'Meta Ads Instagram Feed Campaign', amount: 3500, date: '2026-09-30' },
-    { id: 'exp-4', category: 'Packaging', description: '500x Origami Recycled Craft Mailers', amount: 4200, date: '2026-09-25' },
-    { id: 'exp-5', category: 'Courier', description: 'Delhivery Surface Express Logistics', amount: 2800, date: '2026-09-29' },
-  ]);
+  const [expensesList, setExpensesList] = useState<any[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_expenses');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('tsukuri_expenses', JSON.stringify(expensesList));
+    } catch {}
+  }, [expensesList]);
+
   const [newExpDesc, setNewExpDesc] = useState('');
   const [newExpAmount, setNewExpAmount] = useState(1000);
   const [newExpCategory, setNewExpCategory] = useState('Filament');
@@ -828,13 +857,12 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
   const [campaignsList, setCampaignsList] = useState<any[]>(() => {
     try {
       const stored = localStorage.getItem('tsukuri_campaigns');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch {}
-    return [
-      { id: 'c-1', name: 'Instagram Reels - Zen Planter Drop', spendINR: 4500, ordersCount: 38, revenueINR: 22762, roas: 5.05 },
-      { id: 'c-2', name: 'YouTube Tech Desk Setup Collab', spendINR: 8000, ordersCount: 52, revenueINR: 42640, roas: 5.33 },
-      { id: 'c-3', name: 'Google Search - 3D Printing India', spendINR: 2200, ordersCount: 14, revenueINR: 9800, roas: 4.45 },
-    ];
+    return [];
   });
 
   const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
@@ -860,10 +888,12 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       if (storedOrders) {
         const parsed = JSON.parse(storedOrders);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          // Remove sample data: only include real studio orders
+          const realOnly = parsed.filter((o: any) => !String(o.orderNumber || '').startsWith('PH-') && !String(o.id || '').startsWith('PH-'));
           setOrdersList((prev) => {
             const idMap = new Map();
-            prev.forEach((o) => idMap.set(o.orderNumber || o.id, o));
-            parsed.forEach((o) => idMap.set(o.orderNumber || o.id, o));
+            prev.filter((o: any) => !String(o.orderNumber || '').startsWith('PH-')).forEach((o) => idMap.set(o.orderNumber || o.id, o));
+            realOnly.forEach((o) => idMap.set(o.orderNumber || o.id, o));
             return Array.from(idMap.values());
           });
         }
@@ -872,10 +902,17 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       if (storedCusts) {
         const parsed = JSON.parse(storedCusts);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          const sampleNames = ['aarav mehta', 'ananya sharma', 'rohan nair', 'neha gupta', 'vikram malhotra', 'priya krishnan', 'kabir verma'];
+          const sampleDomains = ['@studio9.in', '@techcorp.in', '@chennai.co', '@delhiuniv.ac.in'];
+          const realCustsOnly = parsed.filter((c: any) => {
+            const n = (c.name || '').toLowerCase().trim();
+            const em = (c.email || '').toLowerCase().trim();
+            return !sampleNames.includes(n) && !sampleDomains.some((d) => em.includes(d));
+          });
           setCustomersList((prev) => {
             const keyMap = new Map();
-            prev.forEach((c) => keyMap.set((c.email || c.phone || c.name || '').toLowerCase(), c));
-            parsed.forEach((c) => keyMap.set((c.email || c.phone || c.name || '').toLowerCase(), c));
+            prev.filter((c: any) => !sampleNames.includes((c.name || '').toLowerCase().trim())).forEach((c) => keyMap.set((c.email || c.phone || c.name || '').toLowerCase(), c));
+            realCustsOnly.forEach((c) => keyMap.set((c.email || c.phone || c.name || '').toLowerCase(), c));
             return Array.from(keyMap.values());
           });
         }
@@ -886,7 +923,9 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          const mapped: WorkshopOrder[] = data.map((o: any) => ({
+          // Filter out template sample data (PH-1001 to PH-1020, etc.)
+          const realOrders = data.filter((o: any) => !String(o.orderNumber || '').startsWith('PH-') && !String(o.id || '').startsWith('PH-'));
+          const mapped: WorkshopOrder[] = realOrders.map((o: any) => ({
             id: String(o.id),
             orderNumber: o.orderNumber || `TSU-${o.id}`,
             customerName: o.customerName || 'Customer',
@@ -910,14 +949,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
             status: o.status || 'New',
             paymentStatus: o.paymentStatus || (o.paymentMethod?.includes('COD') ? 'COD' : 'Paid'),
             orderDate: o.orderDate || o.createdAt || new Date().toISOString(),
-            courier: o.courier || 'BlueDart Express',
-            trackingNumber: o.trackingNumber || `BLU${Math.floor(10000000 + Math.random() * 90000000)}`,
+            courier: o.courier || o.courierName || 'Shiprocket Express Logistics',
+            trackingNumber: o.trackingNumber || `SR12482565${Math.floor(100000 + Math.random() * 900000)}`,
             notes: o.notes || 'Handle with care: 100% bio-PLA ceramic texture',
           }));
           setOrdersList((prev) => {
             const map = new Map();
             mapped.forEach((m) => map.set(m.orderNumber || m.id, m));
-            prev.forEach((p) => {
+            prev.filter((p: any) => !String(p.orderNumber || '').startsWith('PH-')).forEach((p) => {
               if (!map.has(p.orderNumber || p.id)) map.set(p.orderNumber || p.id, p);
             });
             return Array.from(map.values());
@@ -927,15 +966,22 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
       .catch(() => {})
       .finally(() => setIsLoadingOrders(false));
 
-    // Fetch live registered customers
+    // Fetch live registered customers (excluding sample data)
     fetch('/api/customers')
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
+          const sampleNames = ['aarav mehta', 'ananya sharma', 'rohan nair', 'neha gupta', 'vikram malhotra', 'priya krishnan', 'kabir verma'];
+          const sampleDomains = ['@studio9.in', '@techcorp.in', '@chennai.co', '@delhiuniv.ac.in'];
+          const realData = data.filter((d: any) => {
+            const n = (d.name || '').toLowerCase().trim();
+            const em = (d.email || '').toLowerCase().trim();
+            return !sampleNames.includes(n) && !sampleDomains.some((dom) => em.includes(dom));
+          });
           setCustomersList((prev) => {
             const map = new Map();
-            data.forEach((d) => map.set((d.email || d.phone || d.name || '').toLowerCase(), d));
-            prev.forEach((p) => {
+            realData.forEach((d) => map.set((d.email || d.phone || d.name || '').toLowerCase(), d));
+            prev.filter((p: any) => !sampleNames.includes((p.name || '').toLowerCase().trim())).forEach((p) => {
               const k = (p.email || p.phone || p.name || '').toLowerCase();
               if (!map.has(k)) map.set(k, p);
             });
@@ -1906,19 +1952,25 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
         </div>
 
         {/* Terracotta Net Profit */}
-        <div className="rounded-[1.8rem] sm:rounded-[2.2rem] bg-[#ea8f5a] p-4 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[125px] text-white">
+        <div
+          onClick={() => setActiveTab('cost_profit')}
+          className="rounded-[1.8rem] sm:rounded-[2.2rem] bg-[#ea8f5a] p-4 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[125px] text-white cursor-pointer hover:brightness-105 active:scale-[0.99] transition-all"
+          title="Click to view full Cost & Profit Analysis dashboard"
+        >
           <div className="flex justify-between items-start">
             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-white/90">
               NET WORKSHOP P&L
             </span>
-            <DollarSign className="w-4 h-4 text-white" />
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white font-mono font-bold flex items-center gap-1">
+              Margins →
+            </span>
           </div>
           <div>
             <span className="font-bubbly text-2xl sm:text-3xl text-white block leading-none">
               {formatPrice(Math.max(0, totalRevenueINR - totalExpensesINR))}
             </span>
             <span className="text-[10px] sm:text-[11px] font-bold text-white/80 mt-1 block">
-              Expenses: {formatPrice(totalExpensesINR)}
+              Expenses: {formatPrice(totalExpensesINR)} • Order Margins
             </span>
           </div>
         </div>
@@ -1956,7 +2008,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
               </span>
             </div>
             <span className="px-2.5 py-0.5 rounded-full bg-[#1e4b3e] text-[#f3b755] font-mono text-[10px] font-bold">
-              22 Tabs
+              24 Tabs
             </span>
           </div>
 
@@ -1969,50 +2021,52 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                   { id: 'orders', label: '1. Orders Flow', icon: Package },
                   { id: 'order_items', label: '2. Order Items', icon: CheckSquare },
                   { id: 'invoices', label: '3. Tax Invoices & Slips', icon: FileText },
+                  { id: 'shiprocket', label: '4. Shiprocket Logistics', icon: Truck, badge: 'Channel 12482565' },
                 ],
               },
               {
                 category: 'Products & Drops',
                 items: [
-                  { id: 'products', label: '4. Products / Catalog', icon: Tag },
-                  { id: 'product_variants', label: '5. Product Variants', icon: Layers },
+                  { id: 'products', label: '5. Products / Catalog', icon: Tag },
+                  { id: 'product_variants', label: '6. Product Variants', icon: Layers },
                 ],
               },
               {
                 category: '3D Print Lab Fleet',
                 items: [
-                  { id: 'printers', label: '6. 3D Printers Fleet', icon: Printer },
-                  { id: 'print_jobs', label: '7. Print Jobs Queue', icon: Kanban },
-                  { id: 'filament_spools', label: '8. Filament Spools', icon: Layers },
-                  { id: 'inventory_items', label: '9. Inventory Items', icon: Box },
+                  { id: 'printers', label: '7. 3D Printers Fleet', icon: Printer },
+                  { id: 'print_jobs', label: '8. Print Jobs Queue', icon: Kanban },
+                  { id: 'filament_spools', label: '9. Filament Spools', icon: Layers },
+                  { id: 'inventory_items', label: '10. Inventory Items', icon: Box },
                 ],
               },
               {
                 category: 'Founders & Finances',
                 items: [
-                  { id: 'partners_split', label: '10. Aditya & Anshuman P&L', icon: Users, badge: 'P&L' },
-                  { id: 'expenses', label: '11. Expenses & Ledger', icon: DollarSign },
-                  { id: 'purchases', label: '12. Purchases & POs', icon: Truck },
-                  { id: 'suppliers', label: '13. Suppliers', icon: Briefcase },
+                  { id: 'cost_profit', label: '11. Cost & Profit Analysis', icon: PieChart, badge: 'Margins' },
+                  { id: 'partners_split', label: '12. Aditya & Anshuman P&L', icon: Users, badge: 'P&L' },
+                  { id: 'expenses', label: '13. Expenses & Ledger', icon: DollarSign },
+                  { id: 'purchases', label: '14. Purchases & POs', icon: Truck },
+                  { id: 'suppliers', label: '15. Suppliers', icon: Briefcase },
                 ],
               },
               {
                 category: 'Growth & Marketing',
                 items: [
-                  { id: 'discounts', label: '14. Discount Codes & Coupons', icon: Tag, badge: 'Deals' },
-                  { id: 'campaigns', label: '15. Campaigns & ROAS', icon: Megaphone, badge: 'ROAS' },
-                  { id: 'customers', label: '16. Customer Data', icon: Users, badge: 'Auto' },
-                  { id: 'ai_analyzer', label: '17. Live AI Advisor', icon: Bot, badge: 'AI' },
-                  { id: 'activity_log', label: '18. Live Activity Log', icon: Activity },
+                  { id: 'discounts', label: '16. Discount Codes & Coupons', icon: Tag, badge: 'Deals' },
+                  { id: 'campaigns', label: '17. Campaigns & ROAS', icon: Megaphone, badge: 'ROAS' },
+                  { id: 'customers', label: '18. Customer Data', icon: Users, badge: 'Auto' },
+                  { id: 'ai_analyzer', label: '19. Live AI Advisor', icon: Bot, badge: 'AI' },
+                  { id: 'activity_log', label: '20. Live Activity Log', icon: Activity },
                 ],
               },
               {
                 category: 'Calculators & Security',
                 items: [
-                  { id: 'calculator', label: '19. Costing Calculator', icon: Calculator },
-                  { id: 'reports', label: '20. Reports & Exports', icon: BarChart3 },
-                  { id: 'settings', label: '21. Studio Profile & GSTIN', icon: Settings },
-                  { id: 'audit_logs', label: '22. Audit Logs', icon: ShieldCheck, badge: 'Passcode' },
+                  { id: 'calculator', label: '21. Costing Calculator', icon: Calculator },
+                  { id: 'reports', label: '22. Reports & Exports', icon: BarChart3 },
+                  { id: 'settings', label: '23. Studio Profile & GSTIN', icon: Settings },
+                  { id: 'audit_logs', label: '24. Audit Logs', icon: ShieldCheck, badge: 'Passcode' },
                 ],
               },
             ].map((section) => (
@@ -2185,6 +2239,44 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                         ))}
                       </select>
 
+                      {order.trackingNumber && (
+                        <a
+                          href={`https://shiprocket.co//tracking/${encodeURIComponent(order.trackingNumber)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-full bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                          title="Track parcel on official Shiprocket portal"
+                        >
+                          <Truck className="w-3.5 h-3.5 text-emerald-800" />
+                          <span>Track Shiprocket</span>
+                          <ExternalLink className="w-3 h-3 text-emerald-700" />
+                        </a>
+                      )}
+
+                      {/* Push to Shiprocket Official Dashboard */}
+                      <button
+                        onClick={() => handleManifestWithShiprocket(order)}
+                        disabled={manifestingOrderId === order.orderNumber}
+                        className="px-3 py-1.5 rounded-full bg-[#1e4b3e] hover:bg-[#15362c] active:scale-95 text-[#f3b755] text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                        title="Book shipment & push order directly to official Shiprocket merchant dashboard (Channel ID: 12482565)"
+                      >
+                        <Truck className={`w-3.5 h-3.5 ${manifestingOrderId === order.orderNumber ? 'animate-bounce' : ''}`} />
+                        <span>{manifestingOrderId === order.orderNumber ? 'Pushing...' : '⚡ Push to Shiprocket'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setEditingCourierOrder(order);
+                          setEditCourierName(order.courier || 'Shiprocket Express Logistics');
+                          setEditTrackingAwb(order.trackingNumber || '');
+                        }}
+                        className="px-3 py-1.5 rounded-full bg-[#e8ece1] hover:bg-[#1e4b3e] hover:text-[#f3b755] text-slate-700 text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                        title="Set logistics partner & tracking AWB number"
+                      >
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>Courier / AWB</span>
+                      </button>
+
                       <button
                         onClick={() => handleSendInvoiceToCustomer(order)}
                         disabled={sendingInvoiceOrderId === order.orderNumber}
@@ -2343,6 +2435,81 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
               </div>
             </div>
 
+            {/* Requirement 5: Interactive Best Seller Showcase Controller (converted from Everyday section) */}
+            {(() => {
+              const currentBestSeller = productsList.find((p) => Number(p.id) === Number(bestSellerProductId)) || productsList[0];
+              return (
+                <div className="p-4 sm:p-5 bg-gradient-to-r from-[#ea8f5a]/15 via-[#ea8f5a]/25 to-[#f3b755]/20 rounded-2xl sm:rounded-3xl border-2 border-[#ea8f5a]/40 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#ea8f5a] text-white flex items-center justify-center shrink-0 shadow-md border-2 border-white text-2xl">
+                      👑
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#ea8f5a] bg-white px-2 py-0.5 rounded-full border border-[#ea8f5a]/30">
+                          BEST SELLER SHOWCASE CONTROLLER
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500">
+                          (Formerly Everyday Section)
+                        </span>
+                      </div>
+                      <h3 className="font-bubbly text-base sm:text-lg text-[#1a2e26] mt-0.5">
+                        Choose Storefront #1 Best Seller Drop
+                      </h3>
+                      <p className="text-xs text-slate-600">
+                        Pick the product to feature prominently on the home storefront in the terracotta #1 Best Seller card.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-[#ea8f5a]/30 shadow-xs shrink-0 flex-wrap">
+                    {currentBestSeller && (
+                      <div className="flex items-center gap-2.5 mr-2">
+                        <img
+                          src={currentBestSeller.imageUrl}
+                          alt={currentBestSeller.name}
+                          className="w-9 h-9 rounded-xl object-cover border border-slate-200"
+                        />
+                        <div className="text-left">
+                          <span className="font-bold text-xs text-[#1a2e26] block leading-tight">
+                            {currentBestSeller.name}
+                          </span>
+                          <span className="text-[10px] text-[#ea8f5a] font-bold font-mono">
+                            {formatPrice(currentBestSeller.priceINR)} · Active
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <select
+                      value={bestSellerProductId}
+                      onChange={(e) => {
+                        const newId = Number(e.target.value);
+                        if (onSelectBestSeller) onSelectBestSeller(newId);
+                        const selProd = productsList.find((p) => p.id === newId);
+                        addAuditLog({
+                          admin: currentAdminUser === 'Anshuman' ? 'Anshuman' : 'Aditya',
+                          passcodeVerified: 'Verified',
+                          action: 'Best Seller Showcase Updated',
+                          category: 'product',
+                          details: `${currentAdminUser} chose "${selProd?.name || newId}" as the featured #1 Best Seller Drop.`,
+                          status: 'Success',
+                        });
+                        setProductActionToast(`★ Set "${selProd?.name || newId}" as #1 Best Seller showcase!`);
+                        setTimeout(() => setProductActionToast(''), 4000);
+                      }}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-[#1a2e26] focus:outline-[#1e4b3e] cursor-pointer"
+                    >
+                      {productsList.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({formatPrice(p.priceINR)}) {Number(bestSellerProductId) === Number(p.id) ? '★ Current' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Design & Dimensions Guidelines Box */}
             <div className="p-3.5 bg-[#e8ece1]/70 rounded-2xl text-xs space-y-1 text-slate-700 border border-[#1e4b3e]/20">
               <span className="font-bold text-[#1e4b3e] flex items-center gap-1.5 uppercase text-[10px]">
@@ -2366,12 +2533,14 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                     <th className="p-3">Delivery Partner</th>
                     <th className="p-3">Shipping Fee</th>
                     <th className="p-3">Stock & Status</th>
+                    <th className="p-3 text-center">Best Seller</th>
                     <th className="p-3 text-right rounded-r-xl">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {productsList.map((p) => {
                     const estCost = Math.round((p.weightGrams / 1000) * 1200 + p.printTimeHours * 45 + 35 + 70);
+                    const isCurrentBestSeller = Number(bestSellerProductId) === Number(p.id);
                     return (
                       <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-3 flex items-center gap-3">
@@ -2415,6 +2584,36 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                           }`}>
                             {p.inStock ? `${p.stockCount} in stock` : 'Draft'}
                           </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {isCurrentBestSeller ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-[#ea8f5a] text-white shadow-xs">
+                              <Crown className="w-3 h-3 text-amber-200" />
+                              <span>#1 Best Seller</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onSelectBestSeller) onSelectBestSeller(p.id);
+                                addAuditLog({
+                                  admin: currentAdminUser === 'Anshuman' ? 'Anshuman' : 'Aditya',
+                                  passcodeVerified: 'Verified',
+                                  action: 'Best Seller Showcase Updated',
+                                  category: 'product',
+                                  details: `${currentAdminUser} set "${p.name}" (#${p.id}) as the active #1 Best Seller.`,
+                                  status: 'Success',
+                                });
+                                setProductActionToast(`★ Set "${p.name}" as #1 Best Seller!`);
+                                setTimeout(() => setProductActionToast(''), 4000);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 hover:bg-[#ea8f5a]/20 hover:text-[#ea8f5a] text-slate-600 transition-colors cursor-pointer"
+                              title="Feature this product on the home Best Seller showcase"
+                            >
+                              <Star className="w-3 h-3" />
+                              <span>Make Best Seller</span>
+                            </button>
+                          )}
                         </td>
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -3339,6 +3538,52 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
         {/* MODULE 14: DISCOUNT CODES & COUPONS (Requirement 6) */}
         {activeTab === 'discounts' && <DiscountsTab />}
 
+        {/* MODULE: COST & PROFIT ANALYSIS DASHBOARD */}
+        {activeTab === 'cost_profit' && (
+          <CostAndProfitAnalysisTab
+            ordersList={ordersList}
+            productsList={productsList}
+            onRefreshOrders={() => {
+              fetch('/api/orders')
+                .then((res) => res.json())
+                .then((data) => {
+                  if (Array.isArray(data)) {
+                    const mapped: WorkshopOrder[] = data.map((o: any) => ({
+                      id: String(o.id),
+                      orderNumber: o.orderNumber || `TSU-${o.id}`,
+                      customerName: o.customerName || 'Customer',
+                      email: o.customerEmail || '',
+                      phone: o.customerPhone || '',
+                      address: o.shippingAddress || '',
+                      city: o.city || 'India',
+                      items: Array.isArray(o.items) && o.items.length > 0
+                        ? o.items.map((it: any) => ({
+                            productId: it.productId,
+                            name: it.productName || it.name || '3D Print Item',
+                            quantity: it.quantity || 1,
+                            priceINR: it.unitPrice || it.price || 599,
+                          }))
+                        : [{ name: '3D Print Model', quantity: 1, priceINR: o.totalAmount || 599 }],
+                      subtotalINR: o.subtotal || o.totalAmount || 599,
+                      paymentMethod: o.paymentMethod?.includes('COD') ? 'COD' : 'Online',
+                      codFee: o.paymentMethod?.includes('COD') ? 50 : 0,
+                      onlineDiscount: o.paymentMethod?.includes('COD') ? 0 : 10,
+                      totalAmountINR: o.totalAmount || 599,
+                      status: o.status || 'New',
+                      paymentStatus: o.paymentStatus || 'Paid',
+                      orderDate: o.orderDate || new Date().toISOString(),
+                      courier: o.courierName || 'Shiprocket Express Logistics',
+                      trackingNumber: o.trackingNumber,
+                      notes: o.notes,
+                    }));
+                    setOrdersList(mapped);
+                  }
+                })
+                .catch(() => {});
+            }}
+          />
+        )}
+
         {/* MODULE: ADITYA & ANSHUMAN CO-FOUNDER P&L SPLIT (Requirement 20) */}
         {activeTab === 'partners_split' && (
           <PartnersSplitTab
@@ -3579,7 +3824,79 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
 
             {/* EMAIL & AUTOMATED INVOICES SETTINGS */}
             <EmailDeliverySettingsCard />
+
+            {/* SHIPROCKET LOGISTICS & SALES CHANNEL INTEGRATION */}
+            <ShiprocketIntegrationCard
+              ordersList={ordersList}
+              onOrderUpdated={() => {
+                fetch('/api/orders')
+                  .then((res) => res.json())
+                  .then((data) => {
+                    if (Array.isArray(data)) {
+                      setOrdersList(data.map((o: any) => ({
+                        id: String(o.id),
+                        orderNumber: o.orderNumber || `TSU-${o.id}`,
+                        customerName: o.customerName || 'Customer',
+                        email: o.customerEmail || '',
+                        phone: o.customerPhone || '',
+                        address: o.shippingAddress || '',
+                        city: o.city || 'India',
+                        items: o.items || [],
+                        subtotalINR: o.subtotal || o.totalAmount || 599,
+                        paymentMethod: o.paymentMethod?.includes('COD') ? 'COD' : 'Online',
+                        codFee: o.paymentMethod?.includes('COD') ? 50 : 0,
+                        onlineDiscount: o.paymentMethod?.includes('COD') ? 0 : 10,
+                        totalAmountINR: o.totalAmount || 599,
+                        status: o.status || 'New',
+                        paymentStatus: o.paymentStatus || 'Paid',
+                        orderDate: o.orderDate || new Date().toISOString(),
+                        courier: o.courier || o.courierName || 'Shiprocket Express Logistics',
+                        trackingNumber: o.trackingNumber,
+                        notes: o.notes,
+                      })));
+                    }
+                  })
+                  .catch(() => {});
+              }}
+            />
           </div>
+        )}
+
+        {/* MODULE 4: SHIPROCKET LIVE COURIER & SALES CHANNEL (Direct Tab Access) */}
+        {activeTab === 'shiprocket' && (
+          <ShiprocketIntegrationCard
+            ordersList={ordersList}
+            onOrderUpdated={() => {
+              fetch('/api/orders')
+                .then((res) => res.json())
+                .then((data) => {
+                  if (Array.isArray(data)) {
+                    setOrdersList(data.map((o: any) => ({
+                      id: String(o.id),
+                      orderNumber: o.orderNumber || `TSU-${o.id}`,
+                      customerName: o.customerName || 'Customer',
+                      email: o.customerEmail || '',
+                      phone: o.customerPhone || '',
+                      address: o.shippingAddress || '',
+                      city: o.city || 'India',
+                      items: o.items || [],
+                      subtotalINR: o.subtotal || o.totalAmount || 599,
+                      paymentMethod: o.paymentMethod?.includes('COD') ? 'COD' : 'Online',
+                      codFee: o.paymentMethod?.includes('COD') ? 50 : 0,
+                      onlineDiscount: o.paymentMethod?.includes('COD') ? 0 : 10,
+                      totalAmountINR: o.totalAmount || 599,
+                      status: o.status || 'New',
+                      paymentStatus: o.paymentStatus || 'Paid',
+                      orderDate: o.orderDate || new Date().toISOString(),
+                      courier: o.courier || o.courierName || 'Shiprocket Express Logistics',
+                      trackingNumber: o.trackingNumber,
+                      notes: o.notes,
+                    })));
+                  }
+                })
+                .catch(() => {});
+            }}
+          />
         )}
 
         {/* MODULE 15: TAX INVOICES & SLIPS */}
@@ -3598,6 +3915,127 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
         )}
       </main>
     </div>
+
+      {/* QUICK MODAL: ASSIGN / UPDATE COURIER & TRACKING AWB */}
+      {editingCourierOrder && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl border-2 border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-[#1e4b3e] text-[#f3b755] flex items-center justify-center shadow-xs">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bubbly text-base text-[#1a2e26]">
+                    UPDATE COURIER & TRACKING
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    Order #{editingCourierOrder.orderNumber} &bull; {editingCourierOrder.customerName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCourierOrder(null)}
+                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setIsSavingCourier(true);
+                try {
+                  const res = await fetch(`/api/orders/${editingCourierOrder.id}/courier`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      courierName: editCourierName,
+                      trackingNumber: editTrackingAwb,
+                    }),
+                  });
+                  if (res.ok) {
+                    setOrdersList((prev) =>
+                      prev.map((o) =>
+                        o.id === editingCourierOrder.id
+                          ? { ...o, courier: editCourierName, trackingNumber: editTrackingAwb }
+                          : o
+                      )
+                    );
+                    setEditingCourierOrder(null);
+                  }
+                } catch (err) {
+                  console.error('Failed to update courier:', err);
+                } finally {
+                  setIsSavingCourier(false);
+                }
+              }}
+              className="space-y-3.5 text-xs font-bold"
+            >
+              <div className="space-y-1">
+                <label className="text-slate-600 uppercase text-[10px] tracking-wider block">
+                  Logistics Partner *
+                </label>
+                <select
+                  value={editCourierName}
+                  onChange={(e) => setEditCourierName(e.target.value)}
+                  className="w-full bg-[#e8ece1]/50 border border-slate-200 rounded-xl p-2.5 font-bold text-slate-800"
+                >
+                  <option value="Shiprocket Express Logistics">Shiprocket Express Logistics (Channel: Tsukuri3d #12482565)</option>
+                  <option value="Shiprocket Surface Logistics">Shiprocket Surface Logistics (Channel: Tsukuri3d #12482565)</option>
+                  <option value="BlueDart Surface Express">BlueDart Surface Express</option>
+                  <option value="Delhivery Air Express">Delhivery Air Express</option>
+                  <option value="DTDC Premium Express">DTDC Premium Express</option>
+                  <option value="Shadowfax Priority">Shadowfax Priority</option>
+                  <option value="India Post Speed Post">India Post Speed Post</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-600 uppercase text-[10px] tracking-wider block">
+                  AWB Tracking Waybill Number *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. SR1248256501 or courier AWB"
+                  value={editTrackingAwb}
+                  onChange={(e) => setEditTrackingAwb(e.target.value)}
+                  className="w-full bg-[#e8ece1]/50 border border-slate-200 rounded-xl p-2.5 font-mono text-slate-800"
+                />
+                <p className="text-[10px] text-slate-500 font-normal">
+                  Copy and paste the AWB generated from your Shiprocket dashboard (Channel: Tsukuri3d #12482565).
+                </p>
+              </div>
+
+              {editCourierName.toLowerCase().includes('shiprocket') && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 font-normal">
+                  ⚡ <strong>Live Webhook Sync:</strong> When Shiprocket scans this AWB under Sales Channel 12482565, this order will automatically update to In Transit, Out for Delivery, or Delivered in real time.
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingCourierOrder(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingCourier}
+                  className="px-5 py-2 rounded-xl bg-[#1e4b3e] hover:bg-[#15342b] text-[#f3b755] font-bubbly cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingCourier ? 'SAVING...' : 'SAVE COURIER & AWB'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
 
       {/* REQUIREMENT 1: FIX ADD/EDIT PRODUCT MODAL - FULLY VISIBLE FROM TOP */}
@@ -3829,7 +4267,7 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                     </label>
                     <select
                       value={
-                        ['BlueDart Surface Express', 'Delhivery Air Express', 'DTDC Premium Express', 'Shadowfax Priority', 'India Post Speed Post'].includes(prodFormDeliveryPartner)
+                        ['Shiprocket Express Logistics', 'Shiprocket Surface Logistics', 'BlueDart Surface Express', 'Delhivery Air Express', 'DTDC Premium Express', 'Shadowfax Priority', 'India Post Speed Post'].includes(prodFormDeliveryPartner)
                           ? prodFormDeliveryPartner
                           : 'Custom'
                       }
@@ -3840,7 +4278,9 @@ export const TsukuriAdminPanel: React.FC<TsukuriAdminPanelProps> = ({
                       }}
                       className="w-full bg-white border border-[#1e4b3e]/30 rounded-xl p-2.5 text-xs font-bold text-[#1e4b3e] focus:outline-none focus:ring-2 focus:ring-[#1e4b3e]"
                     >
-                      <option value="BlueDart Surface Express">BlueDart Surface Express (Default)</option>
+                      <option value="Shiprocket Express Logistics">Shiprocket Express Logistics (Channel: Tsukuri3d #12482565)</option>
+                      <option value="Shiprocket Surface Logistics">Shiprocket Surface Logistics (Channel: Tsukuri3d #12482565)</option>
+                      <option value="BlueDart Surface Express">BlueDart Surface Express</option>
                       <option value="Delhivery Air Express">Delhivery Air Express</option>
                       <option value="DTDC Premium Express">DTDC Premium Express</option>
                       <option value="Shadowfax Priority">Shadowfax Priority</option>

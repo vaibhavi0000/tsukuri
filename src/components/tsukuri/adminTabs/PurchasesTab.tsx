@@ -14,11 +14,23 @@ export interface PurchaseOrder {
 }
 
 export const PurchasesTab: React.FC = () => {
-  const [purchases, setPurchases] = useState<PurchaseOrder[]>([
-    { id: 'po-1', poNumber: 'PO-2026-089', supplier: 'Kyoto BioPolymer Ltd.', itemsDescription: '10x Spools Matte Matcha PLA (1kg each)', totalCostINR: 12000, date: '2026-09-28', status: 'Received', notes: 'Quality verified - 0.02mm tolerance' },
-    { id: 'po-2', poNumber: 'PO-2026-090', supplier: 'PrintMaterials India', itemsDescription: '8x Spools Terracotta PETG + 5x Silk Obsidian', totalCostINR: 14500, date: '2026-10-01', status: 'In Transit', notes: 'Delhivery Surface tracking AWB 9482109' },
-    { id: 'po-3', poNumber: 'PO-2026-091', supplier: 'EcoCraft Packaging Solutions', itemsDescription: '500x Recycled Bento Mailer Boxes', totalCostINR: 4200, date: '2026-09-25', status: 'Received' },
-  ]);
+  const [purchases, setPurchases] = useState<PurchaseOrder[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_purchases');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const savePurchases = (newPurchases: PurchaseOrder[]) => {
+    setPurchases(newPurchases);
+    try {
+      localStorage.setItem('tsukuri_purchases', JSON.stringify(newPurchases));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,21 +46,20 @@ export const PurchasesTab: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      setPurchases((prev) =>
-        prev.map((po) =>
-          po.id === editingId
-            ? {
-                ...po,
-                poNumber,
-                supplier,
-                itemsDescription,
-                totalCostINR: Number(totalCostINR),
-                status,
-                notes,
-              }
-            : po
-        )
+      const updated = purchases.map((po) =>
+        po.id === editingId
+          ? {
+              ...po,
+              poNumber,
+              supplier,
+              itemsDescription,
+              totalCostINR: Number(totalCostINR),
+              status,
+              notes,
+            }
+          : po
       );
+      savePurchases(updated);
     } else {
       const newPO: PurchaseOrder = {
         id: `po-${Date.now().toString().slice(-4)}`,
@@ -60,7 +71,7 @@ export const PurchasesTab: React.FC = () => {
         status,
         notes,
       };
-      setPurchases([newPO, ...purchases]);
+      savePurchases([newPO, ...purchases]);
     }
     setIsModalOpen(false);
     setEditingId(null);
@@ -78,7 +89,7 @@ export const PurchasesTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setPurchases((prev) => prev.filter((po) => po.id !== id));
+    savePurchases(purchases.filter((po) => po.id !== id));
   };
 
   const filtered = purchases.filter(

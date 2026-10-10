@@ -15,50 +15,23 @@ export interface PrintJob {
 }
 
 export const PrintJobsTab: React.FC = () => {
-  const [jobs, setJobs] = useState<PrintJob[]>([
-    {
-      id: 'job-01',
-      orderNumber: 'TSU-1001',
-      name: 'Zen_Wave_Planter_v4.gcode',
-      printerName: 'Kyoto-1 (Bambu X1C)',
-      material: 'Matte Matcha PLA',
-      estimatedHours: 4.5,
-      filamentGrams: 165,
-      status: 'Printing',
-    },
-    {
-      id: 'job-02',
-      orderNumber: 'TSU-1002',
-      name: 'Torii_Headphone_Rest_Teak.gcode',
-      printerName: 'Nusantara-1 (Prusa MK4)',
-      material: 'Teak Wood Composite',
-      estimatedHours: 6.0,
-      filamentGrams: 220,
-      status: 'Queued',
-    },
-    {
-      id: 'job-03',
-      orderNumber: 'TSU-1003',
-      name: 'Matcha_Keycaps_Batch3.gcode',
-      printerName: 'Kyoto-2 (Bambu X1C)',
-      material: 'Silk Matcha PLA',
-      estimatedHours: 2.1,
-      actualHours: 2.0,
-      filamentGrams: 35,
-      status: 'Done',
-    },
-    {
-      id: 'job-04',
-      orderNumber: 'TSU-1004',
-      name: 'Lotus_Incense_Altar_v2.gcode',
-      printerName: 'Kyoto-1 (Bambu X1C)',
-      material: 'Terracotta Matte PETG',
-      estimatedHours: 3.5,
-      filamentGrams: 110,
-      status: 'Failed',
-      failureReason: 'Bed adhesion loss at layer 84 due to draft',
-    },
-  ]);
+  const [jobs, setJobs] = useState<PrintJob[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_print_jobs');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const saveJobs = (newJobs: PrintJob[]) => {
+    setJobs(newJobs);
+    try {
+      localStorage.setItem('tsukuri_print_jobs', JSON.stringify(newJobs));
+    } catch {}
+  };
 
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
@@ -77,23 +50,22 @@ export const PrintJobsTab: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      setJobs((prev) =>
-        prev.map((j) =>
-          j.id === editingId
-            ? {
-                ...j,
-                orderNumber,
-                name,
-                printerName,
-                material,
-                estimatedHours: Number(estimatedHours),
-                filamentGrams: Number(filamentGrams),
-                status,
-                failureReason: status === 'Failed' ? failureReason : undefined,
-              }
-            : j
-        )
+      const updated = jobs.map((j) =>
+        j.id === editingId
+          ? {
+              ...j,
+              orderNumber,
+              name,
+              printerName,
+              material,
+              estimatedHours: Number(estimatedHours),
+              filamentGrams: Number(filamentGrams),
+              status,
+              failureReason: status === 'Failed' ? failureReason : undefined,
+            }
+          : j
       );
+      saveJobs(updated);
     } else {
       const newJob: PrintJob = {
         id: `job-${Date.now().toString().slice(-4)}`,
@@ -106,7 +78,7 @@ export const PrintJobsTab: React.FC = () => {
         status,
         failureReason: status === 'Failed' ? failureReason : undefined,
       };
-      setJobs([newJob, ...jobs]);
+      saveJobs([newJob, ...jobs]);
     }
     setIsModalOpen(false);
     setEditingId(null);
@@ -126,13 +98,12 @@ export const PrintJobsTab: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setJobs((prev) => prev.filter((j) => j.id !== id));
+    saveJobs(jobs.filter((j) => j.id !== id));
   };
 
   const handleMoveStatus = (id: string, newStatus: any) => {
-    setJobs((prev) =>
-      prev.map((j) => (j.id === id ? { ...j, status: newStatus } : j))
-    );
+    const updated = jobs.map((j) => (j.id === id ? { ...j, status: newStatus } : j));
+    saveJobs(updated);
   };
 
   const filtered = jobs.filter(

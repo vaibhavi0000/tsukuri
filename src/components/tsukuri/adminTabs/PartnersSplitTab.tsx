@@ -38,40 +38,23 @@ export const PartnersSplitTab: React.FC<PartnersSplitTabProps> = ({
   const anshumanSplitPercent = 100 - adityaSplitPercent;
 
   // Partner Drawings & Capital Transactions
-  const [transactions, setTransactions] = useState<PartnerDrawing[]>([
-    {
-      id: 'tx-1',
-      partner: 'Aditya',
-      amount: 8000,
-      date: '2026-10-01',
-      description: 'Monthly Partner Drawing (Bambu Lab Print Farm Share)',
-      category: 'Profit Draw',
-    },
-    {
-      id: 'tx-2',
-      partner: 'Anshuman',
-      amount: 8000,
-      date: '2026-10-01',
-      description: 'Monthly Partner Drawing (E-Commerce & CAD Operations)',
-      category: 'Profit Draw',
-    },
-    {
-      id: 'tx-3',
-      partner: 'Aditya',
-      amount: 12000,
-      date: '2026-09-20',
-      description: 'PEI Build Plate & 0.2mm Nozzles Seed Capital',
-      category: 'Capital Contribution',
-    },
-    {
-      id: 'tx-4',
-      partner: 'Anshuman',
-      amount: 15000,
-      date: '2026-09-18',
-      description: 'Meta Ads & Packaging Design Seed Capital',
-      category: 'Capital Contribution',
-    },
-  ]);
+  const [transactions, setTransactions] = useState<PartnerDrawing[]>(() => {
+    try {
+      const stored = localStorage.getItem('tsukuri_partner_tx');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const saveTransactions = (newTx: PartnerDrawing[]) => {
+    setTransactions(newTx);
+    try {
+      localStorage.setItem('tsukuri_partner_tx', JSON.stringify(newTx));
+    } catch {}
+  };
 
   // Modal State for adding partner withdrawal or contribution
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -118,14 +101,14 @@ export const PartnersSplitTab: React.FC<PartnersSplitTabProps> = ({
       category: categorySelect,
     };
 
-    setTransactions([newTx, ...transactions]);
+    saveTransactions([newTx, ...transactions]);
     setIsModalOpen(false);
     setAmountInput('');
     setDescInput('');
   };
 
   const handleDeleteTransaction = (id: string) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    saveTransactions(transactions.filter((t) => t.id !== id));
   };
 
   return (

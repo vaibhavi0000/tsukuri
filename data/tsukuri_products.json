@@ -326,26 +326,5 @@
       "Real Indonesian reclaimed teak aroma",
       "Water resistant organic beeswax hand buffed finish"
     ]
-  },
-  {
-    "id": 57004,
-    "name": "Test",
-    "japaneseName": "Test (造り)",
-    "sku": "TSU-GEN-29",
-    "category": "Home & Zen",
-    "priceINR": 699,
-    "rating": 5,
-    "reviewsCount": 1,
-    "description": "self-watering capillary reservoir and Japanese drainage grid.",
-    "tagline": "self-watering capillary reservoir and Ja",
-    "material": "Bio-Matte Matcha PLA",
-    "filamentType": "Matte Matcha PLA",
-    "weightGrams": 165,
-    "printTimeHours": 4.5,
-    "imageUrl": "https://assets.awwwards.com/awards/element/2022/12/6398ba6b7ae17573768119.png",
-    "inStock": true,
-    "stockCount": 20,
-    "dimensions": "120 × 120 × 120 mm",
-    "colorHex": "#607d64"
   }
 ]
